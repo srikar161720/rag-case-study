@@ -1,0 +1,75 @@
+================================================================================
+CUSTOMS BROKERAGE DOMAIN KNOWLEDGE — CORE CONCEPTS
+================================================================================
+
+1. ENTRY NUMBER
+   A unique automated identifier for each customs entry, assigned by the
+   customs broker (in this dataset, Vandegrift, a Maersk company, with filer
+   code 595). An entry number follows the format: filer code (3 digits) +
+   entry number (7 digits) + check digit (1 digit). Every shipment clearing
+   U.S. customs must have an entry number filed with CBP (Customs and Border
+   Protection).
+
+2. ENTRY TYPES
+   - Type 01 (Consumption Entry): Standard import entry for goods entering
+     U.S. commerce. Accounts for ~95% of all entries.
+   - Type 06 (FTZ Entry): Entry of goods admitted to a Foreign Trade Zone.
+     Goods may be stored, manipulated, or manufactured in the FTZ before
+     formal entry into U.S. commerce. FTZ entries may have different duty
+     treatment.
+
+3. ENTRY LIFECYCLE DATES
+   - Entry Filed Date: When the customs broker electronically submits the
+     entry to CBP via the Automated Commercial Environment (ACE).
+   - Release Date: When CBP releases the cargo for delivery. This is the
+     canonical date used for most reporting and analytics.
+   - Summary Date: When the entry summary (Form 7501) is filed, typically
+     10 business days after release. This is when duties are actually paid.
+
+   IMPORTANT: When a user asks about entries "in January" or "for Q1," always
+   use Release Date as the filter unless they explicitly specify another date.
+
+4. ENTRY SUMMARY (FORM 7501)
+   The official customs declaration document submitted to CBP. Contains all
+   tariff information, duties, fees, and taxes due on imported goods. The 7501
+   recreates commercial invoice data including invoice numbers, entered values,
+   freight charges, MID codes, bills of lading, and detailed tariff line items.
+
+5. BROKER REFERENCE NUMBER
+   An internal tracking number assigned by the customs broker (Vandegrift).
+   Not the same as the entry number. Used for cross-referencing with internal
+   systems and customer communications.
+
+6. BILL OF LADING (BOL / B/L)
+   A shipping document issued by the ocean carrier that serves as a receipt
+   for cargo, a contract of carriage, and a document of title. Master bills
+   cover the full container; house bills may break down to individual
+   consignments. The BOL number is critical for tracking shipments.
+
+7. CONTAINER NUMBER
+   The unique identifier for each shipping container. Standard format is
+   4 letters (owner code + category) + 7 digits. Multiple entries can share
+   a container (consolidated shipments), and one entry can span multiple
+   containers.
+
+8. MID (MANUFACTURER'S IDENTIFICATION CODE)
+   A code constructed from the manufacturer's name and physical address that
+   identifies where goods were produced. Required on all customs entries.
+   Format: 2-character country code + alphanumeric characters derived from
+   the manufacturer name and address. Used for compliance and origin tracking.
+
+9. PORT CODES
+   - Port of Entry: The U.S. port where goods are admitted. Common codes
+     include 2704 (Los Angeles), 1001 (New York/Newark), 5301 (Houston).
+   - Port of Lading: The foreign port where goods were loaded onto the vessel.
+   - Port of Unlading: The U.S. port where goods are unloaded from the vessel
+     (may differ from port of entry).
+
+10. PAY TYPE
+    - Statement: Duties are accumulated and paid periodically (typically
+      monthly). Used by importers with CBP-approved periodic payment plans.
+    - Daily: Duties are paid at the time of entry summary filing.
+
+================================================================================
+END OF CORE CONCEPTS
+================================================================================

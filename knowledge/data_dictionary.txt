@@ -1,0 +1,70 @@
+================================================================================
+DATA DICTIONARY — CUSTOMS ENTRIES DATASET
+================================================================================
+
+File: customs_entries_oct2024_mar2025.csv
+Grain: One row per tariff line per customs entry
+Period: October 2024 through March 2025
+Record Count: ~4,500 tariff lines across ~1,200 distinct entries
+
+COLUMN DEFINITIONS:
+
+Entry Number              Unique customs entry identifier (Vandegrift filer code 595)
+Broker Reference          Internal Vandegrift tracking number
+Customer Name             Importer of record name
+Customer Code             3-letter customer abbreviation (MHF, PCA, SAG)
+Entry Filed Date          Date the entry was electronically filed with CBP
+Release Date              Date CBP released the cargo (PRIMARY date for analytics)
+Summary Date              Date the entry summary (7501) was filed and duties paid
+Port of Entry             U.S. port code and name where goods were admitted
+Port of Lading            Foreign port where goods were loaded onto the vessel
+Mode of Transport         Shipping method (all Ocean in this dataset)
+Carrier                   Ocean carrier name
+Bill of Lading            Shipping document number (BOL)
+Container Number          Shipping container identifier
+Country of Origin Code    2-letter ISO country code (CN, VN, IN, ID, BD, TW, KR)
+Country of Origin         Full country name
+MID                       Manufacturer's Identification Code
+Invoice Tariff Line       Line number within the entry (1, 2, 3...)
+Invoice Tariff - HTS Code 10-digit Harmonized Tariff Schedule classification
+Invoice Tariff - Description  Product description for the HTS code
+Invoice Line - Units      Quantity of goods on this line
+Invoice Line - UOM        Unit of measure (NMB, KGM, DOZ, PRS, M2)
+Invoice Tariff - Entered Value  Declared customs value in USD
+Invoice Tariff - Duty Rate (%)  Primary ad valorem duty rate
+Invoice Tariff - Duty     Primary duty amount in USD
+Section 301 Code          Chapter 99 code for Section 301 tariff (China only)
+Section 301 Duty          Section 301 duty amount in USD
+IEEPA Code                Chapter 99 code for IEEPA reciprocal tariff
+IEEPA Duty                IEEPA duty amount in USD
+MPF                       Merchandise Processing Fee in USD
+HMF                       Harbor Maintenance Fee in USD
+Total Duty, Taxes, Fees & Penalties  Sum of all duties and fees on this line
+On Hold                   Whether the entry is on hold (Yes/No)
+Hold Reason               Reason for hold (PGA Review, CBP Exam, etc.)
+Pay Type                  Payment method (Statement or Daily)
+Entry Type                Entry type code (01 - Consumption, 06 - FTZ)
+
+================================================================================
+RELATIONSHIPS & JOINS
+================================================================================
+
+- Entry Number is NOT unique per row (one entry has multiple tariff lines)
+- To count entries: SELECT COUNT(DISTINCT "Entry Number")
+- To count lines: SELECT COUNT(*)
+- Bill of Lading can appear across multiple entries (consolidated shipments)
+- Container Number can appear across multiple entries
+
+================================================================================
+KNOWN DATA QUIRKS
+================================================================================
+
+1. Section 301 fields are populated ONLY for Country of Origin = CN (China)
+2. IEEPA fields are populated ONLY for entries with Release Date >= 2025-02-01
+3. MPF at the line level is an allocation; the per-entry cap ($614.35) applies
+   at the entry level
+4. Some entries may share the same Bill of Lading (consolidations)
+
+================================================================================
+END OF DATA DICTIONARY
+================================================================================

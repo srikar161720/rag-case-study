@@ -1,0 +1,117 @@
+================================================================================
+CUSTOMS BROKERAGE DOMAIN KNOWLEDGE — DUTIES, FEES & TARIFF PROGRAMS
+================================================================================
+
+1. HTS CODE (HARMONIZED TARIFF SCHEDULE)
+   The classification code that determines the duty rate for imported goods.
+   U.S. HTS codes are 10 digits (e.g., 6110.20.2079 — cotton pullovers).
+   The first 6 digits follow the international Harmonized System (HS);
+   digits 7-8 are U.S.-specific; digits 9-10 are statistical suffixes.
+
+   When reporting, always display HTS codes with dots in the standard format
+   (XXXX.XX.XXXX), not as raw 10-digit numbers.
+
+2. PRIMARY DUTY
+   The base duty rate applied to goods based on their HTS classification.
+   Duty rates vary widely: some goods enter duty-free (0%), while others
+   may have rates exceeding 25%. Calculated as: Entered Value × Duty Rate.
+
+3. TARIFF STACKING
+   The practice of applying multiple tariff layers to a single entry line.
+   A single product may be subject to:
+   - Primary duty (based on HTS classification)
+   - Section 301 duties (trade remedy against China)
+   - Section 232 duties (national security tariffs on steel/aluminum)
+   - IEEPA duties (reciprocal tariffs under executive authority)
+
+   Each additional tariff uses a "99 code" (Chapter 99 of the HTS) to
+   identify the program. When analyzing total duty spend, all layers must
+   be summed.
+
+4. SECTION 301 TARIFFS (CHINA-SPECIFIC)
+   Trade remedy tariffs applied to goods of Chinese origin. Key codes:
+   - 9903.88.03 (List 3): 25% additional duty on ~$200B of Chinese goods
+   - 9903.88.15 (List 4A): 7.5% additional duty on ~$120B of Chinese goods
+
+   RULE: Section 301 tariffs apply ONLY to goods where Country of Origin
+   is China (CN). They do not apply to goods manufactured in other countries
+   even if components originated in China.
+
+5. IEEPA RECIPROCAL TARIFFS
+   Tariffs imposed under the International Emergency Economic Powers Act,
+   applied on a country-by-country basis. These are additive to primary
+   duty and any Section 301 tariffs. Key codes in this dataset:
+   - 9903.01.25: China (20%)
+   - 9903.02.46: Vietnam (46%)
+   - 9903.02.26: India (26%)
+   - 9903.02.32: Indonesia (32%), Taiwan (32%)
+   - 9903.02.37: Bangladesh (37%)
+   - 9903.02.25: South Korea (25%)
+
+   RULE: IEEPA duties began rolling out in early 2025. Entries before
+   February 2025 in this dataset will not have IEEPA duties applied.
+
+6. MPF (MERCHANDISE PROCESSING FEE)
+   A CBP-assessed fee on all formal entries (value > $2,500). Calculated at
+   0.3464% of the entered value, with:
+   - Minimum: $31.67 per entry
+   - Maximum: $614.35 per entry
+
+   NOTE: MPF is calculated per ENTRY, not per line. When aggregating at the
+   line level, the MPF shown is the line-level allocation. For entry-level
+   totals, the capped amount applies.
+
+7. HMF (HARBOR MAINTENANCE FEE)
+   A fee assessed on goods arriving by ocean vessel, calculated at 0.125%
+   of the entered value. There is no cap. HMF applies only to ocean
+   shipments (Mode of Transport = Ocean).
+
+8. ENTERED VALUE
+   The declared customs value of imported merchandise, typically the
+   transaction value (price actually paid or payable) plus certain
+   statutory additions (assists, packing costs, royalties). This is the
+   basis for calculating ad valorem duties and fees.
+
+9. TOTAL DUTY, TAXES, FEES & PENALTIES
+   The comprehensive total of all financial obligations on an entry:
+   Primary Duty + Section 301 Duty + IEEPA Duty + MPF + HMF + any
+   additional taxes or penalties. This is the key financial metric for
+   customer reporting and QBR (Quarterly Business Review) generation.
+
+================================================================================
+BUSINESS RULES FOR ANALYTICS
+================================================================================
+
+RULE 1 — Date Filtering
+   Always use Release Date for period-based queries unless the user
+   explicitly asks for Entry Filed Date or Summary Date.
+
+RULE 2 — Entry Count vs. Line Count
+   "How many entries?" = count of DISTINCT entry numbers.
+   "How many lines?" or "entry lines?" = count of tariff line records.
+   Always clarify which metric is being reported.
+
+RULE 3 — Duty Spend Aggregation
+   When asked "total duty spend," sum the "Total Duty, Taxes, Fees &
+   Penalties" column. When asked for a duty breakdown, separate into
+   Primary Duty, Section 301, IEEPA, MPF, and HMF components.
+
+RULE 4 — Country of Origin Filtering
+   Trade remedy tariffs (301, IEEPA) are origin-based. When analyzing
+   tariff impact, always group by Country of Origin Code.
+
+RULE 5 — Shell Entries
+   Entries with abnormally short entry numbers (e.g., only 3 digits) or
+   zero entered values may be "shell entries" — placeholder records created
+   when the broker was not the filing party. Exclude these from standard
+   analytics unless specifically asked.
+
+RULE 6 — On-Hold Entries
+   Entries flagged as "On Hold" are still valid entries but may have
+   delayed release or pending government action. Include them in counts
+   and financial totals unless the user asks specifically about
+   cleared/released entries only.
+
+================================================================================
+END OF DUTIES, FEES & TARIFF PROGRAMS
+================================================================================

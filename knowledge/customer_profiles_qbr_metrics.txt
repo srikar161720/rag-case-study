@@ -1,0 +1,97 @@
+================================================================================
+CUSTOMER PROFILES & QUARTERLY BUSINESS REVIEW (QBR) METRICS
+================================================================================
+
+CUSTOMER: MERIDIAN HOME FURNISHINGS (MHF)
+   Industry: Home furnishings and décor
+   Primary products: Upholstered seating, wooden furniture, lighting,
+   textiles, mirrors, cushions, floor coverings
+   Key sourcing countries: China, Vietnam, India, Indonesia
+   Notable: High average entered value per entry due to furniture weight
+   and bulk. Tariff exposure concentrated in Chapters 94 (furniture) and
+   63 (textile furnishings).
+
+CUSTOMER: PACIFIC COAST APPAREL (PCA)
+   Industry: Apparel and fashion accessories
+   Primary products: Cotton pullovers, t-shirts, trousers, shirts, handbags
+   Key sourcing countries: China, Vietnam, Bangladesh, India
+   Notable: High entry line counts per shipment due to SKU diversity.
+   Significant Section 301 exposure on China-sourced apparel. Duty rates
+   in the 16-28% range before trade remedy surcharges.
+
+CUSTOMER: SUMMIT ATHLETIC GEAR (SAG)
+   Industry: Sporting goods and athletic wear
+   Primary products: Athletic footwear, gloves, sports bags, track suits,
+   inflatable balls, caps/hats
+   Key sourcing countries: China, Vietnam, Indonesia
+   Notable: Footwear duty rates at 20% base, compounded by 301/IEEPA.
+   Some product categories (inflatable balls) are duty-free at primary
+   level but still subject to trade remedy tariffs.
+
+================================================================================
+QBR (QUARTERLY BUSINESS REVIEW) METRICS
+================================================================================
+
+The QBR is the primary deliverable for customs analytics clients. It
+provides a structured overview of import activity, duty exposure, and
+operational efficiency. Standard QBR sections:
+
+1. ENTRY VOLUME SUMMARY
+   - Total entries by month and quarter
+   - Entry count trend (month-over-month, quarter-over-quarter)
+   - Breakdown by port of entry
+   - Average lines per entry (indicator of shipment complexity)
+
+2. DUTY SPEND ANALYSIS
+   - Total duty, taxes, fees & penalties by period
+   - Duty breakdown: Primary vs. Section 301 vs. IEEPA vs. MPF vs. HMF
+   - Duty spend by country of origin
+   - Top HTS codes by duty contribution
+   - Effective duty rate (total duties / total entered value)
+
+3. TARIFF PROGRAM IMPACT
+   - Section 301 exposure: total 301 duty, % of total duty spend,
+     affected entry count
+   - IEEPA reciprocal tariff exposure by country
+   - Tariff stacking analysis: entries subject to multiple tariff programs
+   - Country-level landed cost comparison
+
+4. OPERATIONAL METRICS
+   - Entries on hold: count, hold reasons, average hold duration
+   - Entry filing to release time (processing speed)
+   - Carrier distribution
+   - Port utilization patterns
+
+5. SOURCING INTELLIGENCE
+   - Top 10 HTS codes by volume and value
+   - Country of origin shift analysis (period-over-period)
+   - MID concentration (supplier diversity)
+   - Average declared value per unit by product category
+
+================================================================================
+METRIC DEFINITIONS
+================================================================================
+
+EFFECTIVE DUTY RATE
+   Formula: (Total Duties + Fees) / Total Entered Value × 100
+   Purpose: Shows the all-in cost of importing as a percentage of goods value.
+   A rising effective rate signals increased tariff exposure.
+
+ENTRY LINE DENSITY
+   Formula: Total Tariff Lines / Total Distinct Entries
+   Purpose: Measures shipment complexity. Higher density means more product
+   variety per shipment, which increases classification risk.
+
+SECTION 301 EXPOSURE RATIO
+   Formula: Total Section 301 Duty / Total Duty Spend × 100
+   Purpose: Shows what portion of a customer's duty bill is attributable
+   to the China trade war tariffs. Critical for sourcing shift discussions.
+
+HOLD RATE
+   Formula: Entries On Hold / Total Entries × 100
+   Purpose: Operational quality indicator. Industry benchmark is < 5%.
+   Rates above 8% warrant investigation into compliance issues.
+
+================================================================================
+END OF CUSTOMER PROFILES & QBR METRICS
+================================================================================
