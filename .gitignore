@@ -3,9 +3,6 @@
 .venv/
 env/
 
-# Data
-data/
-
 # IDE
 .vscode/
 .idea/
