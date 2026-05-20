@@ -20,7 +20,7 @@ Phase checklist + session log for the Customs Analytics Agent build.
 - [x] `CLAUDE.md` created
 - [x] `PROGRESS.md` created (this file)
 - [x] `context/` directory + 12 context files created
-- [ ] Commit context-files scaffolding to `main` (one-off direct commit; all
+- [x] Commit context-files scaffolding to `main` (one-off direct commit; all
       subsequent work goes through feature branches per CLAUDE.md workflow)
 
 ---
