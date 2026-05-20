@@ -73,10 +73,10 @@ bugs, no `DOUBLE`-vs-`DECIMAL` rounding drift.
 | Invoice Tariff - Entered Value | `entered_value` | `DECIMAL(18,2)` | **Money — never `DOUBLE`** |
 | Invoice Tariff - Duty Rate (%) | `duty_rate_pct` | `DECIMAL(7,4)` | Captures 18.625% etc. |
 | Invoice Tariff - Duty | `primary_duty` | `DECIMAL(18,2)` | — |
-| Section 301 Code | `section_301_code` | `VARCHAR` | `NULLIF('', code)` — NULL when not applicable |
-| Section 301 Duty | `section_301_duty` | `DECIMAL(18,2)` | `NULLIF('', val)` then CAST — **NULL when non-CN** (KB §Quirk 1) |
-| IEEPA Code | `ieepa_code` | `VARCHAR` | NULLIF |
-| IEEPA Duty | `ieepa_duty` | `DECIMAL(18,2)` | **NULL when Release Date < 2025-02-01** (KB §Quirk 2) |
+| Section 301 Code | `section_301_code` | `VARCHAR` | `NULLIF('', code)` — **NULL on non-CN lines (applicability signal)** (KB §Quirk 1) |
+| Section 301 Duty | `section_301_duty` | `DECIMAL(18,2)` | `NULLIF('', val)` then CAST — **`0.00` on non-CN lines** (KB §Quirk 1). Gated by `section_301_code IS NOT NULL`, not by the duty value. |
+| IEEPA Code | `ieepa_code` | `VARCHAR` | `NULLIF('', code)` — **NULL when Release Date < 2025-02-01 (applicability signal)** (KB §Quirk 2) |
+| IEEPA Duty | `ieepa_duty` | `DECIMAL(18,2)` | `NULLIF('', val)` then CAST — **`0.00` when Release Date < 2025-02-01** (KB §Quirk 2). Gated by `ieepa_code IS NOT NULL`, not by the duty value. |
 | MPF | `mpf` | `DECIMAL(18,2)` | **Line allocation — entry-level cap applied in `entries_v`** (KB §Quirk 3) |
 | HMF | `hmf` | `DECIMAL(18,2)` | Ocean-only; no cap |
 | Total Duty, Taxes, Fees & Penalties | `total_duty_taxes_fees` | `DECIMAL(18,2)` | Line-level sum (uses uncapped line-level MPF) |
@@ -287,9 +287,13 @@ GROUP BY entry_number;
   may overcount on entries with high-MPF allocations).
   `total_duty_taxes_fees_correct` applies the MPF cap. Tools default to
   `_correct`; `_line_sum` is for sanity/validation.
-- **`COALESCE(SUM(section_301_duty), 0)`**. Section 301 is NULL for all
-  non-CN lines (Fork 18). `SUM` of all-NULLs returns NULL, which would
-  propagate into the entry total. Coalesce makes a clean zero.
+- **`COALESCE(SUM(section_301_duty), 0)`**. Non-CN lines have
+  `section_301_duty = 0.00` in the actual CSV (the duty column is
+  zero-filled on non-applicable lines; only the `section_301_code`
+  column is NULL — that's the applicability signal). The `COALESCE`
+  is defensive against future NULL-shaped data and against any filter
+  that excludes all applicable rows; for the current zero-filled data
+  it's a no-op but harmless. Same pattern applies to `ieepa_duty`.
 - **`BOOL_OR(on_hold)`**. On-hold is consistent within an entry, but
   `BOOL_OR` reads as obvious intent and is robust to any data anomaly.
 - **`LIST(DISTINCT country_of_origin_code)` + `distinct_origin_count`**.
@@ -403,19 +407,22 @@ def validate_loaded_data(con: duckdb.DuckDBPyConnection) -> None:
         f"Expected {EXPECTED_DISTINCT_ENTRIES} distinct entries, got {e}"
     )
 
-    # Section 301 NULL only on non-CN — KB §Quirk 1
+    # Section 301 applicability — code present only on CN-origin lines (KB §Quirk 1).
+    # The CODE column is the authoritative applicability signal; the duty column
+    # is zero-filled (0.00) on non-applicable lines in the actual CSV.
     bad = con.execute("""
         SELECT COUNT(*) FROM entry_lines
-        WHERE section_301_duty IS NOT NULL AND country_of_origin_code != 'CN'
+        WHERE section_301_code IS NOT NULL AND country_of_origin_code != 'CN'
     """).fetchone()[0]
-    assert bad == 0, "Section 301 duty present on non-CN line — quirk violated"
+    assert bad == 0, "Section 301 code present on non-CN line — KB §Quirk 1 violated"
 
-    # IEEPA NULL only when Release Date < 2025-02-01 — KB §Quirk 2
+    # IEEPA applicability — code present only on release_date >= 2025-02-01 (KB §Quirk 2).
+    # Same code-column-is-the-signal pattern as Section 301.
     bad = con.execute("""
         SELECT COUNT(*) FROM entry_lines
-        WHERE ieepa_duty IS NOT NULL AND release_date < DATE '2025-02-01'
+        WHERE ieepa_code IS NOT NULL AND release_date < DATE '2025-02-01'
     """).fetchone()[0]
-    assert bad == 0, "IEEPA duty present on pre-Feb-2025 entry — quirk violated"
+    assert bad == 0, "IEEPA code present on pre-Feb-2025 entry — KB §Quirk 2 violated"
 
     # Enum drift — these feed Pydantic Literal[...] in Fork 21
     actual_customers = {r[0] for r in con.execute(

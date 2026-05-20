@@ -6,12 +6,12 @@ Phase checklist + session log for the Customs Analytics Agent build.
 
 ## Current Status
 
-- **Phase**: Pre-build (planning locked, scaffolding pending)
-- **Current branch**: `main`
-- **Last PR merged**: — (none yet)
-- **Last session**: 2026-05-18 — Plan lock-in + context-file scaffolding
-- **Days elapsed / remaining**: 0 / 7
-- **Blockers**: None
+- **Phase**: Day 1 complete — foundation phase shipped. Day 2 starting next.
+- **Current branch**: `test/ground-truth` (committed locally, push + merge pending)
+- **Last PR merged**: `feat/data-layer` (preceded by `chore/scaffold-monorepo`)
+- **Last session**: 2026-05-20 — Day 1 complete (scaffold + data layer + ground truth)
+- **Days elapsed / remaining**: 1 / 6
+- **Blockers**: None. The first task of `feat/rag-pipeline` creates `backend/.env.example` + `frontend/.env.example` so **all** project API keys (Anthropic, OpenAI, Langfuse) can be populated in local `.env` files up front — before the build-time embedding pass needs `OPENAI_API_KEY`.
 
 ---
 
@@ -36,33 +36,34 @@ branch (and therefore one PR). The branch list below maps 1:1 to the planned
 #### Branch: `chore/scaffold-monorepo`
 
 - [x] Move `data/` → `backend/data/` and `knowledge/` → `backend/knowledge/`
-- [ ] Create `backend/` and `frontend/` subdirectory skeletons
-- [ ] `.github/workflows/` directory with placeholder files
-- [ ] Root `Makefile` with all targets per `context/07-infrastructure.md` (G6)
-- [ ] `scripts/setup.sh` interactive first-time setup
-- [ ] `.tool-versions` (Python 3.12, Node 20, pnpm 9)
-- [ ] `.gitattributes` for generated files
-- [ ] Update `.gitignore` per Fork 35
-- [ ] Initial `README.md` skeleton (full content lands Day 7)
+- [x] Create `backend/` and `frontend/` subdirectory skeletons
+- [x] `.github/workflows/` directory with placeholder files
+- [x] Root `Makefile` with all targets per `context/07-infrastructure.md` (G6)
+- [x] `scripts/setup.sh` interactive first-time setup
+- [x] `.tool-versions` (Python 3.12, Node 20, pnpm 9) _(installed: Python 3.12 via uv-managed, Node 22.22.3, pnpm 11.1.3 — pinned to installed)_
+- [x] `.gitattributes` for generated files
+- [x] Update `.gitignore` per Fork 35
+- [x] Initial `README.md` skeleton (full content lands Day 7)
 
 #### Branch: `feat/data-layer`
 
-- [ ] `backend/pyproject.toml` + initial `uv.lock` with core deps (DuckDB, pydantic, fastapi)
-- [ ] `backend/src/customs_agent/data/load.py` — typed CAST schema with snake_case + derived columns (Fork 18)
-- [ ] `backend/src/customs_agent/data/views.py` — `entry_lines_v` + `entries_v` with capped MPF (Fork 19)
-- [ ] `backend/src/customs_agent/data/validation.py` — boot-time row count, enum drift, shell-entry log
-- [ ] `backend/src/customs_agent/config.py` — initial `AgentConfig`, `LLMConfig`, `RateLimitConfig`, `SafetyConfig` (skeleton)
+- [x] `backend/pyproject.toml` + initial `uv.lock` with core deps (DuckDB, pydantic, fastapi) _(13 prod + 4 dev deps locked against Python 3.12; `tool.uv.required-environments` constrains resolution for macOS Intel wheel compatibility — onnxruntime locked to 1.23.2)_
+- [x] `backend/src/customs_agent/data/load.py` — typed CAST schema with snake_case + derived columns (Fork 18)
+- [x] `backend/src/customs_agent/data/views.py` — `entry_lines_v` + `entries_v` with capped MPF (Fork 19)
+- [x] `backend/src/customs_agent/data/validation.py` — boot-time row count, enum drift, shell-entry log _(5 hard assertions: row count, distinct entries, Section 301 + IEEPA applicability via CODE columns, customer + country enum drift; 1 INFO log on shell count)_
+- [x] `backend/src/customs_agent/config.py` — initial `AgentConfig`, `LLMConfig`, `RateLimitConfig`, `SafetyConfig` (skeleton) _(collapsed to a single flat `Settings(BaseSettings)` class with 21 env-bound fields across 7 logical sections; module-level singleton instantiation deferred to `feat/fastapi-backend`)_
 
 #### Branch: `test/ground-truth`
 
-- [ ] `backend/tests/ground_truth.py` — all 11 canonical answers computed via SQL (Fork 43)
-- [ ] Generate `backend/tests/ground_truth.json` with dataset SHA-256 pin
-- [ ] Manually cross-check the 11 answers against a spreadsheet before committing
+- [x] `backend/tests/ground_truth.py` — all 11 canonical answers computed via SQL (Fork 43)
+- [x] Generate `backend/tests/ground_truth.json` with dataset SHA-256 pin _(CSV SHA: `1d6df8e5710e4fe8d1b5ee43a9dc9ba08f82596148e49ec8407f3b0301bea98f`)_
+- [x] Manually cross-check the 11 answers against a spreadsheet before committing _(verified via two independent code paths: DuckDB views and Python stdlib `csv.DictReader` — every numeric result agreed to the cent)_
 
 ### Day 2 — Agent Core
 
 #### Branch: `feat/rag-pipeline`
 
+- [ ] **Env templates first** — create `backend/.env.example` + `frontend/.env.example` env-var contracts (moved up from `feat/fastapi-backend` / `feat/web-mvp`) so all project API keys can be populated in local `.env` files up front, avoiding mid-development pauses to add keys later. Also: update `config.py` module docstring (currently states the contract lands on a later branch) and run `./scripts/setup.sh` to scaffold `backend/.env` (with auto-generated `BACKEND_API_KEY`) + `frontend/.env.local` (with the key synced from backend).
 - [ ] `backend/src/customs_agent/rag/chunker.py` — section-header chunking with `section_kind` metadata (Fork 14)
 - [ ] `backend/scripts/build_index.py` — OpenAI embeddings → ChromaDB + `bm25.pkl` + `manifest.json` (Fork 17)
 - [ ] `backend/src/customs_agent/rag/retriever.py` — hybrid BM25 + semantic with RRF, top-K=5 (Fork 16)
@@ -299,6 +300,25 @@ branch (and therefore one PR). The branch list below maps 1:1 to the planned
 - **Decisions / surprises**: <only if non-routine — design changes, scope shifts, blockers, dep surprises>
 - **Next session**: <1 line — next branch or checklist item to start>
 ```
+
+---
+
+### 2026-05-20 — Day 1 complete (scaffold + data layer + ground truth)
+
+- **Branch(es) touched**: `chore/scaffold-monorepo`, `feat/data-layer`, `test/ground-truth`
+- **PRs**: merged: 2 (`chore/scaffold-monorepo`, `feat/data-layer`); committed locally, push pending: `test/ground-truth`
+- **Progress**: All 17 Day-1 checklist items complete across 7 commits. Monorepo scaffolding (skeleton dirs, root `Makefile` with 25 self-documenting targets, idempotent `scripts/setup.sh`, CI workflow placeholders, README skeleton, comprehensive `.gitignore` + `.gitattributes`). Typed DuckDB data layer (`pyproject.toml` + `uv.lock` with 13 prod + 4 dev deps locked against Python 3.12; flat `Settings(BaseSettings)` skeleton; `load.py` + `views.py` + `validation.py` with MPF cap and 5 hard boot-time assertions). SHA-pinned ground-truth fixture for the 11 case-study answers (verified through two independent code paths).
+- **Decisions / surprises**:
+  - **`onnxruntime` macOS Intel wheel drop** — onnxruntime 1.26 (chromadb transitive dep) has no `darwin/x86_64` wheel; resolved via `tool.uv.required-environments` in `pyproject.toml` constraining resolution to both linux/amd64 (prod Docker target) and darwin/x86_64 (dev machine), locking onnxruntime to 1.23.2 which has wheels for both.
+  - **Settings class shape** — PROGRESS.md's plural `AgentConfig` / `LLMConfig` / `RateLimitConfig` / `SafetyConfig` names collapsed to a single flat `Settings(BaseSettings)` class per the locked spec in `context/05-api-and-backend.md`; the plural names describe logical sections inside Settings, not separate classes.
+  - **Spec drift discovered** — `section_301_duty` and `ieepa_duty` are `0.00` (not `NULL`) on non-applicable lines in the actual CSV; only the corresponding CODE columns are `NULL`, and those are the authoritative applicability signal. Updated 6 prose locations across `CLAUDE.md` Critical Gotchas 2 + 3 and `context/02-data-layer.md`. Validation rules now check the code columns. The `COALESCE(SUM(...), 0)` views pattern remains as defensive coding.
+  - **New workflow rules added to CLAUDE.md this session**:
+    1. No build-phase / "Day N" references in commits or PRs (Commit Message Format section).
+    2. No build status / progress lines in `README.md` — tracking lives in CLAUDE.md + PROGRESS.md only (new Documentation hygiene subsection).
+    3. Pause on data-shape or spec-drift discoveries — present options to the user before unilaterally picking a fix (When in Doubt section).
+    4. New Critical Gotcha 11 — `structlog` is intentionally unconfigured pre-`feat/observability-base`; the data layer's INFO log uses the library default until that branch lands.
+  - **Hold rate** — dataset has 236 on-hold entries (19.67% hold rate; status `warrants_investigation` per the >8% threshold), correcting an earlier sampling-based scan that reported 0. Ground-truth Q6 captures this.
+- **Next session**: Begin Day 2 — branch `feat/rag-pipeline`. Requires `OPENAI_API_KEY` (shell export for now until `backend/.env.example` lands on `feat/fastapi-backend`).
 
 ---
 

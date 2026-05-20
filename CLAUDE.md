@@ -44,6 +44,10 @@ These are non-negotiable across every session.
 ### Branches & PRs
 
 - **Never commit directly to `main`.** All work happens on feature branches.
+- **Exception — tracking docs go straight to `main`.** `CLAUDE.md`,
+  `PROGRESS.md`, and `context/*.md` updates are administrative and
+  commit directly to `main` (no branch, no PR). All code and config
+  changes still follow the branch + PR workflow.
 - **Branch naming**: `<type>/<short-kebab-name>` where `<type>` matches the
   dominant Conventional Commits type for the branch
   (e.g., `feat/data-layer`, `chore/dockerfile-fly`, `docs/final-polish`).
@@ -68,6 +72,11 @@ Conventional Commits: `<type>(<scope>): <subject>`.
 Body (when warranted) explains the **why**, not the **what** (the diff is
 the what). Wrap body lines at 72 chars.
 
+**Forbidden in commit messages and PR bodies**: build-phase or "Day N"
+references. `PROGRESS.md` is the only place where Day-N labels live;
+commits and PRs are the public git history and must not reference the
+internal planning calendar.
+
 ### EVALUATION.md handling
 
 `EVALUATION.md` at the repo root is a **static snapshot deliverable**. Claude
@@ -81,6 +90,14 @@ When changes affect agent behavior (anything under `prompts/`, `tools/`,
 `agent/`, `rag/`, `data/`, or a `PROMPT_VERSION` bump), Claude reminds the
 user at the chunk-completion message that EVALUATION.md should be
 regenerated before the next submission-quality commit.
+
+### Documentation hygiene
+
+- **No build status / progress lines in `README.md`.** Tracking the
+  project's build state lives exclusively in `CLAUDE.md` and
+  `PROGRESS.md` so the README doesn't go stale between updates.
+  Reserve the README for evergreen content (architecture, setup,
+  deliverables).
 
 ### User assets to flag
 
@@ -261,10 +278,17 @@ forgotten. Every session must remember them.
 1. **MPF cap per entry** ($31.67 minimum, $614.35 maximum). Never sum
    line-level MPF without applying the cap at entry grain. Encoded in
    `entries_v.total_mpf_capped` (Fork 19). Tools use this, not the raw sum.
-2. **Section 301 only on CN-origin lines**: `section_301_duty` is `NULL` for
-   non-CN lines (Fork 18). Use `COALESCE(SUM(...), 0)` to handle the NULL.
-3. **IEEPA only on Release Date ≥ 2025-02-01**: `ieepa_duty` is `NULL` for
-   earlier entries (Fork 18). Same COALESCE pattern.
+2. **Section 301 only on CN-origin lines**: `section_301_code` is `NULL`
+   for non-CN lines; `section_301_duty` is `0.00` there (Fork 18). The
+   CODE column is the authoritative applicability signal — use
+   `WHERE section_301_code IS NOT NULL` to filter "lines that had
+   Section 301 applied", not `WHERE section_301_duty IS NOT NULL`. The
+   `COALESCE(SUM(section_301_duty), 0)` pattern in views is defensive
+   against future NULL-shaped data and harmless for the zero-filled
+   actual data.
+3. **IEEPA only on Release Date ≥ 2025-02-01**: `ieepa_code` is `NULL`
+   for earlier entries; `ieepa_duty` is `0.00` there (Fork 18). Same
+   code-column-is-the-signal pattern as Section 301.
 4. **Citation marker integrity**: the LLM writes `[N]` markers in prose; the
    backend builds the citations array from real retrieval and tool-call
    history (Fork 28). Orphan markers (referencing a non-existent N) must be
@@ -286,6 +310,15 @@ forgotten. Every session must remember them.
     no `execute_sql(query)` tool. Parameterized `?` placeholders for values
     + Pydantic-enforced column-name allowlists for `group_by` / `aggregations`
     / `order_by` (Fork 50).
+11. **`structlog` is intentionally unconfigured pre-`feat/observability-base`**.
+    The data layer's `validation.py` already calls
+    `structlog.get_logger()` and emits a boot-time INFO event using the
+    library default (stderr console output). The proper boot
+    configuration — dev vs. prod renderer split (Fork 54), secret-shape
+    scrubber processor (Fork 53), request-context binding — lands on
+    `feat/observability-base`. Until then, do not "fix" the unconfigured
+    state; once that branch lands, existing callers pick up the full
+    config automatically at module import.
 
 ---
 
@@ -334,6 +367,15 @@ see [`context/11-deliverables.md`](context/11-deliverables.md).
 - **Decision authority**: if a question arises that's not covered by the
   locked plan, **ask the user before proceeding**. Do not improvise on
   architectural decisions.
+- **Pause on data-shape or spec-drift discoveries**: when investigating
+  an unexpected condition reveals a real design decision (data
+  semantics, spec drift, anything that mutates data or changes a
+  documented invariant), **stop and present the options to the user
+  for confirmation BEFORE implementing a fix**. Do not unilaterally
+  pick the "obviously right" solution — the user may have context
+  Claude doesn't (downstream tool design, customer constraints, data
+  fidelity preferences). The Section 301 / IEEPA NULL-vs-`0.00`
+  discovery during `feat/data-layer` is the worked example.
 - **File modification**: prefer `Edit` for targeted changes; use `Write` only
   for new files or complete rewrites.
 - **Verification before commit**: after any significant change, suggest the
