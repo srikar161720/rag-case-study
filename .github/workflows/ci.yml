@@ -1,0 +1,31 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CI workflow — PLACEHOLDER
+#
+# This file currently exists only so the .github/workflows/ directory is
+# present and the file path is reserved. Real jobs land on the `chore/ci-cd`
+# branch (Day 3) per PROGRESS.md.
+#
+# Planned jobs (see context/08-cicd-and-testing.md for full spec):
+#   - backend: uv sync --frozen → uv lock --check → ruff → mypy → pytest
+#   - frontend: pnpm install --frozen-lockfile → lint → typecheck → test → build
+#   - api-contract: regenerate openapi.json + api-types.ts, fail on drift
+#   - secret-scan: gitleaks
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  placeholder:
+    name: Placeholder
+    runs-on: ubuntu-latest
+    steps:
+      - name: Announce placeholder status
+        run: |
+          echo "::notice::Placeholder CI — real jobs land on chore/ci-cd (Day 3)."
+          echo "See context/08-cicd-and-testing.md for the planned job structure."

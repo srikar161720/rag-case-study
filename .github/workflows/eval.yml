@@ -1,0 +1,33 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Eval workflow — PLACEHOLDER
+#
+# Triggers `workflow_dispatch` only for now to avoid surprise billing — the
+# real workflow consumes LLM credits on every run. Real triggers + job land
+# on the `feat/remaining-tools-and-eval` branch (Day 4) per PROGRESS.md.
+#
+# Planned triggers (see context/08-cicd-and-testing.md):
+#   - path-triggered: prompts/, tools/, agent/, rag/, data/ changes on PR
+#   - nightly: cron at 05:00 UTC
+#   - manual: workflow_dispatch
+#   - label-based: pull_request labeled `eval-on-pr`
+#
+# Planned steps:
+#   - Build the RAG index (content-hash cache key)
+#   - Run pytest tests/eval/ against ground_truth.json via real Anthropic + OpenAI calls
+#   - Post results as a PR comment; on nightly failure, auto-open an issue
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Eval
+
+on:
+  workflow_dispatch:
+
+jobs:
+  placeholder:
+    name: Placeholder
+    runs-on: ubuntu-latest
+    steps:
+      - name: Announce placeholder status
+        run: |
+          echo "::notice::Placeholder eval workflow — real jobs land on feat/remaining-tools-and-eval (Day 4)."
+          echo "See context/08-cicd-and-testing.md for the planned trigger matrix and job spec."
