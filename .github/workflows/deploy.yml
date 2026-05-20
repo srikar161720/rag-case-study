@@ -1,0 +1,34 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Deploy workflow — PLACEHOLDER
+#
+# Triggers `workflow_dispatch` only for now because no Fly secrets are
+# configured yet. Real auto-deploy on push to `main` lands on the
+# `chore/ci-cd` branch (Day 3) per PROGRESS.md.
+#
+# Frontend deploys are handled by Vercel's GitHub integration (auto-preview
+# on PR, auto-promote on merge to main) — no workflow needed for that.
+#
+# Planned backend deploy steps (see context/08-cicd-and-testing.md):
+#   - flyctl deploy --remote-only --build-secret openai_key=$OPENAI_API_KEY
+#   - Smoke-test /ready on the deployed URL with retry
+#   - Failure → auto-rollback to previous release
+#
+# Required GitHub Secrets before enabling auto-deploy:
+#   FLY_API_TOKEN, OPENAI_API_KEY, ANTHROPIC_API_KEY,
+#   LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Deploy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  placeholder:
+    name: Placeholder
+    runs-on: ubuntu-latest
+    steps:
+      - name: Announce placeholder status
+        run: |
+          echo "::notice::Placeholder deploy workflow — real jobs land on chore/ci-cd (Day 3)."
+          echo "See context/08-cicd-and-testing.md for the deploy spec and required secrets."
