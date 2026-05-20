@@ -1,2 +1,35 @@
-# Auto detect text files and perform LF normalization
+# Auto-detect text files and perform LF normalization on commit
 * text=auto
+
+# Force LF line endings on shell scripts (they run inside Linux containers).
+*.sh text eol=lf
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Generated files
+#   - linguist-generated=true: excluded from GitHub language stats and
+#     collapsed by default in diffs / PR review UIs
+# ─────────────────────────────────────────────────────────────────────────────
+openapi.json                            linguist-generated=true
+frontend/src/lib/api-types.ts           linguist-generated=true
+backend/tests/ground_truth.json         linguist-generated=true
+backend/uv.lock                         linguist-generated=true
+frontend/pnpm-lock.yaml                 linguist-generated=true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Lockfiles: skip diff (still committed, just less noise in PRs)
+# ─────────────────────────────────────────────────────────────────────────────
+backend/uv.lock                         -diff
+frontend/pnpm-lock.yaml                 -diff
+*.lock                                  -diff
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Binary assets
+# ─────────────────────────────────────────────────────────────────────────────
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.csv   binary
+*.parquet binary
+*.pkl   binary
