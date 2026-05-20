@@ -1,0 +1,420 @@
+{
+  "version": "1.0.0",
+  "generated_at": "2026-05-20T22:19:39.095791+00:00",
+  "dataset_sha256": "1d6df8e5710e4fe8d1b5ee43a9dc9ba08f82596148e49ec8407f3b0301bea98f",
+  "questions": [
+    {
+      "id": 1,
+      "tier": 1,
+      "query": "How many customs entries were filed for Pacific Coast Apparel in January 2025?",
+      "answer": {
+        "entry_count": 65
+      },
+      "tolerance": {
+        "entry_count": 0
+      },
+      "expected_phrases": [],
+      "expected_citations": [
+        "rule_1_date_filtering"
+      ],
+      "expected_tool_name": "query_entries",
+      "expected_tool_args_partial": {
+        "filters": {
+          "customer_code": "PCA",
+          "release_year_month": "2025-01"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "tier": 1,
+      "query": "What is the total entered value for Summit Athletic Gear in Q1 2025?",
+      "answer": {
+        "total_entered_value": "59949493.45"
+      },
+      "tolerance": {
+        "total_entered_value": [
+          "abs",
+          0.01
+        ]
+      },
+      "expected_phrases": [],
+      "expected_citations": [
+        "rule_1_date_filtering"
+      ],
+      "expected_tool_name": "query_entries",
+      "expected_tool_args_partial": {
+        "filters": {
+          "customer_code": "SAG",
+          "release_year_quarter": "2025-Q1"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "tier": 1,
+      "query": "Which port of entry handled the most entries overall?",
+      "answer": {
+        "port_of_entry_code": "1701",
+        "port_of_entry_name": "Charleston",
+        "entry_count": 255
+      },
+      "tolerance": {
+        "entry_count": 0
+      },
+      "expected_phrases": [],
+      "expected_citations": [],
+      "expected_tool_name": "query_entries",
+      "expected_tool_args_partial": {
+        "group_by": [
+          "port_of_entry_code",
+          "port_of_entry_name"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "tier": 2,
+      "query": "What is the total Section 301 duty exposure for all customers combined in December 2024?",
+      "answer": {
+        "section_301": "3207636.70"
+      },
+      "tolerance": {
+        "section_301": [
+          "abs",
+          0.01
+        ]
+      },
+      "expected_phrases": [],
+      "expected_citations": [
+        "quirk_1_section_301_china_only"
+      ],
+      "expected_tool_name": "total_duty_breakdown",
+      "expected_tool_args_partial": {
+        "filters": {
+          "release_year_month": "2024-12"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "tier": 2,
+      "query": "What is the effective duty rate for Meridian Home Furnishings for goods originating from China in Q1 2025?",
+      "answer": {
+        "rate_pct": 31.075,
+        "total_duty": "6430022.48",
+        "total_entered_value": "20691977.34",
+        "line_count": 289
+      },
+      "tolerance": {
+        "rate_pct": [
+          "rel",
+          0.001
+        ]
+      },
+      "expected_phrases": [
+        "effective duty rate"
+      ],
+      "expected_citations": [
+        "metric_effective_duty_rate"
+      ],
+      "expected_tool_name": "effective_duty_rate",
+      "expected_tool_args_partial": {
+        "filters": {
+          "customer_code": "MHF",
+          "country_of_origin_code": "CN",
+          "release_year_quarter": "2025-Q1"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "tier": 2,
+      "query": "How many entries are currently on hold, and what's the hold rate? Is it above or below the industry benchmark?",
+      "answer": {
+        "entries_total": 1200,
+        "entries_on_hold": 236,
+        "hold_rate_pct": 19.6667,
+        "benchmark_pct": 5.0,
+        "status": "warrants_investigation"
+      },
+      "tolerance": {
+        "hold_rate_pct": [
+          "abs",
+          0.01
+        ],
+        "entries_on_hold": 0,
+        "entries_total": 0
+      },
+      "expected_phrases": [
+        "benchmark"
+      ],
+      "expected_citations": [
+        "metric_hold_rate_benchmark"
+      ],
+      "expected_tool_name": "hold_summary",
+      "expected_tool_args_partial": {
+        "filters": {}
+      }
+    },
+    {
+      "id": 7,
+      "tier": 3,
+      "query": "Compare the IEEPA duty impact across all three customers for February and March 2025. Which customer has the highest IEEPA exposure as a percentage of their total duty spend?",
+      "answer": {
+        "ranked": [
+          {
+            "customer_code": "MHF",
+            "ieepa": "9055698.57",
+            "total_duty": "12360603.19",
+            "ieepa_pct": 73.2626,
+            "rank": 1
+          },
+          {
+            "customer_code": "SAG",
+            "ieepa": "11849376.76",
+            "total_duty": "20011768.05",
+            "ieepa_pct": 59.212,
+            "rank": 2
+          },
+          {
+            "customer_code": "PCA",
+            "ieepa": "10498840.86",
+            "total_duty": "19058742.62",
+            "ieepa_pct": 55.0867,
+            "rank": 3
+          }
+        ],
+        "highest_customer_code": "MHF"
+      },
+      "tolerance": {
+        "ieepa_pct": [
+          "rel",
+          0.001
+        ]
+      },
+      "expected_phrases": [],
+      "expected_citations": [
+        "quirk_2_ieepa_feb_2025",
+        "metric_effective_duty_rate"
+      ],
+      "expected_tool_name": "compare_customers",
+      "expected_tool_args_partial": {
+        "metric": "ieepa_pct",
+        "filters": {
+          "release_date_from": "2025-02-01",
+          "release_date_to": "2025-03-31"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "tier": 3,
+      "query": "For Pacific Coast Apparel, what are the top 5 HTS codes by total duty contribution (all duty types combined) from China? Include the description and total amount.",
+      "answer": {
+        "top_5": [
+          {
+            "hts_code": "6104.63.2006",
+            "hts_description": "Women's trousers, synthetic, knitted",
+            "total_duty": "3580203.63",
+            "primary_duty": "2141944.21",
+            "section_301": "987044.25",
+            "ieepa": "415334.32",
+            "line_count": 101,
+            "entered_value": "7595546.97"
+          },
+          {
+            "hts_code": "6204.62.4011",
+            "hts_description": "Women's trousers, cotton",
+            "total_duty": "2706034.35",
+            "primary_duty": "1213670.91",
+            "section_301": "1067990.60",
+            "ieepa": "389755.63",
+            "line_count": 101,
+            "entered_value": "7311270.80"
+          },
+          {
+            "hts_code": "6109.10.0040",
+            "hts_description": "T-shirts, cotton, men's",
+            "total_duty": "2613197.10",
+            "primary_duty": "1057608.76",
+            "section_301": "1110401.76",
+            "ieepa": "414861.11",
+            "line_count": 88,
+            "entered_value": "6409749.89"
+          },
+          {
+            "hts_code": "6205.20.2065",
+            "hts_description": "Men's shirts, cotton",
+            "total_duty": "2559709.91",
+            "primary_duty": "1249463.31",
+            "section_301": "870661.07",
+            "ieepa": "409513.67",
+            "line_count": 90,
+            "entered_value": "6342453.35"
+          },
+          {
+            "hts_code": "4202.22.8050",
+            "hts_description": "Handbags, outer surface textile",
+            "total_duty": "2549425.27",
+            "primary_duty": "1105277.50",
+            "section_301": "957105.73",
+            "ieepa": "457384.91",
+            "line_count": 83,
+            "entered_value": "6279985.78"
+          }
+        ]
+      },
+      "tolerance": {
+        "total_duty": [
+          "abs",
+          0.01
+        ]
+      },
+      "expected_phrases": [],
+      "expected_citations": [
+        "hts_format_xxxx_xx_xxxx",
+        "quirk_1_section_301_china_only"
+      ],
+      "expected_tool_name": "top_hts_by_duty",
+      "expected_tool_args_partial": {
+        "filters": {
+          "customer_code": "PCA",
+          "country_of_origin_code": "CN"
+        },
+        "limit": 5
+      }
+    },
+    {
+      "id": 9,
+      "tier": 3,
+      "query": "Generate a mini QBR summary for Summit Athletic Gear covering Q1 2025 \u2014 entry volume trend by month, total duty breakdown by program, top sourcing countries, and hold rate.",
+      "answer": {
+        "entry_volume_by_month": [
+          {
+            "month": "2025-01",
+            "count": 66
+          },
+          {
+            "month": "2025-02",
+            "count": 68
+          },
+          {
+            "month": "2025-03",
+            "count": 65
+          }
+        ],
+        "duty_breakdown": {
+          "primary": "9255370.11",
+          "section_301": "3129394.87",
+          "ieepa": "11849376.76",
+          "mpf_capped": "114089.55",
+          "hmf": "74936.94",
+          "total": "24423168.23"
+        },
+        "top_countries": [
+          {
+            "country_of_origin_code": "CN",
+            "line_count": 291
+          },
+          {
+            "country_of_origin_code": "VN",
+            "line_count": 195
+          },
+          {
+            "country_of_origin_code": "IN",
+            "line_count": 129
+          },
+          {
+            "country_of_origin_code": "ID",
+            "line_count": 70
+          },
+          {
+            "country_of_origin_code": "BD",
+            "line_count": 50
+          }
+        ],
+        "hold_summary": {
+          "entries_total": 199,
+          "entries_on_hold": 39,
+          "hold_rate_pct": 19.598
+        }
+      },
+      "tolerance": {
+        "hold_rate_pct": [
+          "abs",
+          0.01
+        ]
+      },
+      "expected_phrases": [],
+      "expected_citations": [
+        "qbr_structure",
+        "metric_hold_rate_benchmark",
+        "metric_effective_duty_rate"
+      ],
+      "expected_tool_name": "qbr_summary",
+      "expected_tool_args_partial": {
+        "customer_code": "SAG",
+        "period": "2025-Q1"
+      },
+      "rubric": {
+        "judge_model": "gpt-4o-mini",
+        "temperature": 0,
+        "seed": 42,
+        "components": [
+          "entry_volume_by_month",
+          "duty_breakdown_by_program",
+          "top_countries",
+          "hold_rate"
+        ],
+        "pass_threshold": 3
+      }
+    },
+    {
+      "id": 10,
+      "tier": 4,
+      "query": "If I ask 'how many entries in January?' \u2014 which date field should the agent use, and why?",
+      "answer": {
+        "date_field": "release_date"
+      },
+      "tolerance": {},
+      "expected_phrases": [
+        "Release Date"
+      ],
+      "expected_citations": [
+        "rule_1_date_filtering"
+      ],
+      "expected_tool_name": "lookup_knowledge",
+      "expected_tool_args_partial": {}
+    },
+    {
+      "id": 11,
+      "tier": 4,
+      "query": "What's the difference between entry count and line count for Meridian Home Furnishings in November 2024?",
+      "answer": {
+        "entry_count": 68,
+        "line_count": 232,
+        "difference": 164
+      },
+      "tolerance": {
+        "entry_count": 0,
+        "line_count": 0,
+        "difference": 0
+      },
+      "expected_phrases": [
+        "entry",
+        "line"
+      ],
+      "expected_citations": [
+        "rule_2_entry_vs_line_count"
+      ],
+      "expected_tool_name": "query_entries",
+      "expected_tool_args_partial": {
+        "filters": {
+          "customer_code": "MHF",
+          "release_year_month": "2024-11"
+        }
+      }
+    }
+  ]
+}
