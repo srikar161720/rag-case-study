@@ -2,8 +2,8 @@
 
 Configuration is loaded from environment variables (case-insensitive) with a
 fallback to a ``.env`` file at the ``backend/`` root. The ``.env`` file itself
-is gitignored; the ``.env.example`` contract that documents every variable
-lands on the ``feat/fastapi-backend`` branch.
+is gitignored; the committed ``backend/.env.example`` contract documents
+every variable in this class.
 
 The four logical config groupings referenced in PROGRESS.md
 (``AgentConfig`` / ``LLMConfig`` / ``RateLimitConfig`` / ``SafetyConfig``) are
@@ -15,8 +15,7 @@ Note on instantiation: this module defines the ``Settings`` class only — the
 module-level singleton ``settings = Settings()`` instantiation is deferred
 to ``main.py`` on the ``feat/fastapi-backend`` branch. ``Settings()`` raises
 ``ValidationError`` at construction time if the three required env vars
-(``ANTHROPIC_API_KEY``, ``BACKEND_API_KEY``, ``ALLOWED_ORIGINS``) are absent,
-and those are not yet scaffolded on this branch.
+(``ANTHROPIC_API_KEY``, ``BACKEND_API_KEY``, ``ALLOWED_ORIGINS``) are absent.
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
