@@ -16,7 +16,7 @@
 .PHONY: help install install-backend install-frontend setup \
         dev-backend dev-frontend \
         test test-backend test-frontend eval \
-        ground-truth openapi types-frontend types eval-md \
+        ground-truth build-index openapi types-frontend types eval-md \
         build \
         lint lint-backend lint-frontend \
         typecheck typecheck-backend typecheck-frontend \
@@ -68,6 +68,9 @@ eval: ## Real-LLM eval suite (requires API keys; consumes credits)
 
 ground-truth: ## Regenerate backend/tests/ground_truth.json from SQL
 	cd backend && uv run python -m tests.ground_truth
+
+build-index: ## Build the RAG index (ChromaDB + BM25 + manifest) — needs OPENAI_API_KEY in backend/.env
+	cd backend && uv run python -m scripts.build_index
 
 openapi: ## Export backend OpenAPI snapshot to openapi.json (G3)
 	cd backend && uv run python -m scripts.export_openapi > ../openapi.json
