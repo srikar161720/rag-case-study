@@ -1,6 +1,6 @@
-"""Boot-time data validation (Fork 18, 20).
+"""Boot-time data validation (Fork 18, 20, 21).
 
-Five hard assertions plus one INFO log against the loaded ``entry_lines``
+Six hard assertions plus one INFO log against the loaded ``entry_lines``
 table and ``entries_v`` / ``entry_lines_v`` views:
 
 1. Row count matches the expected dataset size.
@@ -11,7 +11,12 @@ table and ``entries_v`` / ``entry_lines_v`` views:
    an absence. See load.py for the data-shape rationale.
 4. ``ieepa_code`` is non-NULL only on ``release_date ≥ 2025-02-01`` (KB
    §Quirk 2). Same applicability-via-code pattern as Section 301.
-5. ``customer_code`` and ``country_of_origin_code`` enums match the expected sets.
+5. ``customer_code``, ``country_of_origin_code``, and ``port_of_entry_code``
+   enums match the ``Literal`` aliases declared in
+   :mod:`customs_agent.tools._filters` (Fork 21). The expected sets are
+   derived via :func:`typing.get_args` so the filter module is the single
+   source of truth — adding a new code to the data without updating the
+   ``Literal`` definitions fails boot loudly with expected-vs-actual sets.
 
 Failing any of these aborts the app at boot. Silently wrong data is worse
 than failing fast — the ``/ready`` endpoint returns 503 if this validation
@@ -29,15 +34,24 @@ lands on the ``feat/observability-base`` branch. Until then,
 stderr), which is correct behavior for the single INFO log emitted here.
 """
 
+from typing import get_args
+
 import duckdb
 import structlog
+
+from customs_agent.tools._filters import CountryCode, CustomerCode, PortCode
 
 log = structlog.get_logger()
 
 EXPECTED_ROW_COUNT = 4574
 EXPECTED_DISTINCT_ENTRIES = 1200
-EXPECTED_CUSTOMERS: frozenset[str] = frozenset({"MHF", "PCA", "SAG"})
-EXPECTED_COUNTRIES: frozenset[str] = frozenset({"CN", "VN", "IN", "ID", "BD", "TW", "KR"})
+
+# Derived from the Literal aliases in tools._filters so we have ONE place
+# to add a new customer / country / port. Drift between the data and the
+# tool-input schema is exactly the bug this guard catches.
+EXPECTED_CUSTOMERS: frozenset[str] = frozenset(get_args(CustomerCode))
+EXPECTED_COUNTRIES: frozenset[str] = frozenset(get_args(CountryCode))
+EXPECTED_PORTS: frozenset[str] = frozenset(get_args(PortCode))
 
 
 def validate_loaded_data(con: duckdb.DuckDBPyConnection) -> None:
@@ -117,6 +131,20 @@ def validate_loaded_data(con: duckdb.DuckDBPyConnection) -> None:
     assert actual_countries == EXPECTED_COUNTRIES, (
         f"Country enum drift: got {sorted(actual_countries)}, "
         f"expected {sorted(EXPECTED_COUNTRIES)}"
+    )
+
+    # 5c. Port enum drift — guard against new ports appearing without
+    # updating tools._filters.PortCode (which downstream Pydantic
+    # validation would silently allow as a string otherwise).
+    actual_ports = frozenset(
+        r[0]
+        for r in con.execute(
+            "SELECT DISTINCT port_of_entry_code FROM entries_v"
+        ).fetchall()
+    )
+    assert actual_ports == EXPECTED_PORTS, (
+        f"Port enum drift: got {sorted(actual_ports)}, "
+        f"expected {sorted(EXPECTED_PORTS)}"
     )
 
     # 6. Shell-entry count — INFO log only (no abort)
