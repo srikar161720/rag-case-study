@@ -31,7 +31,7 @@ import time
 from typing import Any
 
 import duckdb
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from customs_agent.tools._filters import EntryFilters
 
@@ -74,7 +74,11 @@ class ToolResult(BaseModel):
 
     data: Any
     meta: ToolMeta
-    citations: list[Citation] = []
+    # Use default_factory to match the rest of the codebase's Pydantic style
+    # (every other defaultable field in this branch uses Field(default_factory=...)).
+    # Pydantic v2 deep-copies field defaults per instance, so this is also safe
+    # against the classic shared-mutable-default trap.
+    citations: list[Citation] = Field(default_factory=list)
 
     # Permit Decimal / date / datetime in data without explicit converters.
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -83,21 +87,6 @@ class ToolResult(BaseModel):
 # ─────────────────────────────────────────────────────────────────────────────
 # WHERE clause builder (Fork 50 — all values via ? placeholders)
 # ─────────────────────────────────────────────────────────────────────────────
-
-# Mapping from EntryFilters field → (column expression, requires-param?).
-# Used by build_where_clause to emit consistent fragments. The boolean
-# means "this field's value is bound as a ? parameter"; ``is_shell``
-# resolves to a hard-coded FALSE / TRUE literal with no param.
-_FIELD_TO_COLUMN: dict[str, str] = {
-    "customer_code":          "customer_code",
-    "country_of_origin_code": "country_of_origin_code",
-    "port_of_entry_code":     "port_of_entry_code",
-    "release_date_from":      "release_date",
-    "release_date_to":        "release_date",
-    "release_year_month":     "release_year_month",
-    "release_year_quarter":   "release_year_quarter",
-    "on_hold":                "on_hold",
-}
 
 
 def build_where_clause(filters: EntryFilters) -> tuple[str, list[Any]]:
@@ -115,9 +104,21 @@ def build_where_clause(filters: EntryFilters) -> tuple[str, list[Any]]:
     tuple[str, list[Any]]
         ``(where_sql, params)`` suitable for splicing into
         ``f"SELECT ... WHERE {where_sql}"`` and passing as the second
-        argument to :func:`safe_execute`. ``where_sql`` is ``"TRUE"``
-        when no filters apply, so callers can always use the fragment
-        unconditionally.
+        argument to :func:`safe_execute`.
+
+        The fragment is **always non-empty** so callers can splice it
+        unconditionally:
+
+        - With the default ``include_shell=False``, even a no-filter
+          call returns ``("is_shell = FALSE", [])`` — the shell guard
+          is always present unless explicitly disabled.
+        - ``("TRUE", [])`` is returned only when ``include_shell=True``
+          AND no other filters are set.
+
+        This contract is locked by two paired tests in
+        ``tests/unit/tools/test_shared.py``
+        (``test_empty_filters_yield_shell_only_clause`` +
+        ``test_include_shell_true_drops_shell_guard``).
     """
     conditions: list[str] = []
     params: list[Any] = []
