@@ -86,6 +86,7 @@ branch (and therefore one PR). The branch list below maps 1:1 to the planned
 - [ ] `backend/src/customs_agent/agent/refusal.py` — 5-category refusal routing (Fork 25)
 - [ ] `backend/src/customs_agent/agent/validator.py` — citation marker validation (strip orphans) (Fork 28)
 - [ ] `backend/src/customs_agent/api/chat.py` — `ChatRequest` / `ChatResponse` Pydantic models (Fork 28)
+- [ ] `backend/src/customs_agent/tools/query_entries.py` — add `model_validator` on `QueryEntriesInput` rejecting view-incompatible `filters` / `group_by` / `aggregations`, reusing the per-view column sets from the boot-time `DESCRIBE entries_v` / `DESCRIBE entry_lines_v` calls this branch wires for the `format_query_entries_description()` placeholder substitution (PR #5 Copilot Comment 4 follow-up; centralizes per-view column knowledge so it isn't duplicated across `_allowlists.py` and the bootstrap path)
 
 #### Branch: `test/backend-units`
 
