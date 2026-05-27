@@ -77,3 +77,49 @@ def test_citations_include_three_quirks_and_rule_3(
         "quirk_2_ieepa_feb_2025",
         "quirk_3_mpf_per_entry_cap",
     }
+
+
+@pytest.mark.unit
+def test_zero_row_filter_returns_coalesced_zeros_entry_grain(
+    duckdb_con: duckdb.DuckDBPyConnection,
+) -> None:
+    """Filter that matches no rows must return zero-coalesced values, not
+    NULLs. Exercises the ``row[i] or 0`` path in _query_entry_grain — the
+    dead ``if row is None:`` branch was removed per Copilot PR review;
+    this test pins the actual NULL-handling path that ships."""
+    result = total_duty_breakdown(
+        duckdb_con,
+        EntryFilters(release_year_month="1999-01"),  # before dataset
+    )
+    d = result.data
+    assert result.meta.view_used == "entries_v"
+    for field in ("primary", "section_301", "ieepa", "mpf_capped",
+                  "mpf_raw", "hmf", "total_correct", "total_line_sum"):
+        assert d[field] == 0, f"{field} should coalesce NULL → 0; got {d[field]!r}"
+    assert d["line_count"] == 0
+    assert d["entry_count"] == 0
+
+
+@pytest.mark.unit
+def test_zero_row_filter_returns_coalesced_zeros_line_grain(
+    duckdb_con: duckdb.DuckDBPyConnection,
+) -> None:
+    """Same path exercised on _query_line_grain. mpf_capped + total_correct
+    are explicitly ``None`` on line-grain (the cap can't be re-applied);
+    every other numeric field coalesces to 0."""
+    result = total_duty_breakdown(
+        duckdb_con,
+        EntryFilters(
+            country_of_origin_code="CN",   # forces line-grain branch
+            release_year_month="1999-01",
+        ),
+    )
+    d = result.data
+    assert result.meta.view_used == "entry_lines_v"
+    for field in ("primary", "section_301", "ieepa",
+                  "mpf_raw", "hmf", "total_line_sum"):
+        assert d[field] == 0, f"{field} should coalesce NULL → 0; got {d[field]!r}"
+    assert d["mpf_capped"] is None
+    assert d["total_correct"] is None
+    assert d["line_count"] == 0
+    assert d["entry_count"] == 0

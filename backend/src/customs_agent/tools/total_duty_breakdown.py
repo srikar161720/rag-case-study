@@ -89,16 +89,12 @@ def _query_entry_grain(
         FROM entries_v
         WHERE {where}
     """
+    # Aggregate-without-GROUP-BY: DuckDB always returns exactly one row
+    # (NULL aggregates when zero rows match). ``fetchone()`` cannot return
+    # None here; the ``row[i] or 0`` coalescing below covers the NULL case.
     row = safe_execute(con, sql, params).fetchone()
-    if row is None:
-        zero_entry: dict[str, Any] = {
-            "primary": 0, "section_301": 0, "ieepa": 0,
-            "mpf_capped": 0, "mpf_raw": 0, "hmf": 0,
-            "total_correct": 0, "total_line_sum": 0,
-            "line_count": 0, "entry_count": 0,
-        }
-        return zero_entry, sql.strip(), 0
-    return {
+    assert row is not None  # see comment above; satisfies mypy
+    data: dict[str, Any] = {
         "primary": row[0] or 0,
         "section_301": row[1] or 0,
         "ieepa": row[2] or 0,
@@ -109,7 +105,8 @@ def _query_entry_grain(
         "total_line_sum": row[7] or 0,
         "line_count": int(row[8] or 0),
         "entry_count": int(row[9] or 0),
-    }, sql.strip(), int(row[9] or 0)
+    }
+    return data, sql.strip(), int(row[9] or 0)
 
 
 def _query_line_grain(
@@ -137,16 +134,10 @@ def _query_line_grain(
         FROM entry_lines_v
         WHERE {where}
     """
+    # Aggregate-without-GROUP-BY: see note in _query_entry_grain above.
     row = safe_execute(con, sql, params).fetchone()
-    if row is None:
-        zero_line: dict[str, Any] = {
-            "primary": 0, "section_301": 0, "ieepa": 0,
-            "mpf_capped": None, "mpf_raw": 0, "hmf": 0,
-            "total_correct": None, "total_line_sum": 0,
-            "line_count": 0, "entry_count": 0,
-        }
-        return zero_line, sql.strip(), 0
-    return {
+    assert row is not None
+    data: dict[str, Any] = {
         "primary": row[0] or 0,
         "section_301": row[1] or 0,
         "ieepa": row[2] or 0,
@@ -157,7 +148,8 @@ def _query_line_grain(
         "total_line_sum": row[5] or 0,
         "line_count": int(row[6] or 0),
         "entry_count": int(row[7] or 0),
-    }, sql.strip(), int(row[6] or 0)
+    }
+    return data, sql.strip(), int(row[6] or 0)
 
 
 def total_duty_breakdown(

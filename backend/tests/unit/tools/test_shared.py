@@ -72,7 +72,9 @@ def test_combined_filter_emits_and_join() -> None:
             release_year_month="2025-01",
         )
     )
-    # Order of fields tracks _FIELD_TO_COLUMN dict insertion order in _shared.py.
+    # Order tracks the sequence of `if filters.<field> is not None:` checks
+    # in build_where_clause (customer → country → port → date-range →
+    # year-month → year-quarter → on_hold → is_shell guard).
     assert where == (
         "customer_code = ? "
         "AND port_of_entry_code = ? "
@@ -229,3 +231,28 @@ def test_tool_meta_allows_null_sql_for_non_sql_tools() -> None:
     )
     assert meta.sql_executed is None
     assert meta.view_used is None
+
+
+@pytest.mark.unit
+def test_tool_result_citations_do_not_share_state() -> None:
+    """Regression: ``citations`` uses ``Field(default_factory=list)`` so two
+    instances created without an explicit citations list don't share the
+    same underlying object. Pydantic v2 deep-copies field defaults, but the
+    explicit factory matches our codebase style AND defends against future
+    Pydantic behavior changes / lint rules (RUF012).
+    """
+    meta = ToolMeta(
+        tool_name="example", sql_executed=None, view_used=None,
+        filters_applied={}, shell_entries_excluded=0,
+        rows_inspected=0, latency_ms=0,
+    )
+    a = ToolResult(data={}, meta=meta)
+    b = ToolResult(data={}, meta=meta)
+    # Different list instances.
+    assert a.citations is not b.citations
+    # Mutating one must not leak into the other.
+    a.citations.append(
+        Citation(doc="x.txt", section="§1", chunk_id="rule_1_date_filtering")
+    )
+    assert len(a.citations) == 1
+    assert len(b.citations) == 0
