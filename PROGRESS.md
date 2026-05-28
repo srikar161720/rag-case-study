@@ -6,12 +6,12 @@ Phase checklist + session log for the Customs Analytics Agent build.
 
 ## Current Status
 
-- **Phase**: Day 1 complete — foundation phase shipped. Day 2 starting next.
-- **Current branch**: `test/ground-truth` (committed locally, push + merge pending)
-- **Last PR merged**: `feat/data-layer` (preceded by `chore/scaffold-monorepo`)
-- **Last session**: 2026-05-20 — Day 1 complete (scaffold + data layer + ground truth)
-- **Days elapsed / remaining**: 1 / 6
-- **Blockers**: None. The first task of `feat/rag-pipeline` creates `backend/.env.example` + `frontend/.env.example` so **all** project API keys (Anthropic, OpenAI, Langfuse) can be populated in local `.env` files up front — before the build-time embedding pass needs `OPENAI_API_KEY`.
+- **Phase**: Day 2 nearly complete — agent runtime layer shipped across 4 merged PRs (`feat/rag-pipeline` → `feat/prompts-and-tools` → `chore/copilot-review-cleanup` → `feat/agent-loop`). Remaining Day 2 work is the `test/backend-units` branch, slimmed to data-layer unit-test coverage (tools tests + agent-primitive tests already shipped alongside their source modules on prior branches).
+- **Current branch**: `main` (clean; ready to start `test/backend-units`)
+- **Last PR merged**: `feat/agent-loop` (preceded by `chore/copilot-review-cleanup`, `feat/prompts-and-tools`, `feat/rag-pipeline`)
+- **Last session**: 2026-05-27 — Day 2 agent core (RAG + prompts + tools + agent loop, 4 branches)
+- **Days elapsed / remaining**: 2 / 5
+- **Blockers**: None. Next: `test/backend-units` for `tests/unit/data/{test_load,test_views,test_validation}.py`, then Day 3 begins with `feat/fastapi-backend`.
 
 ---
 
@@ -63,36 +63,36 @@ branch (and therefore one PR). The branch list below maps 1:1 to the planned
 
 #### Branch: `feat/rag-pipeline`
 
-- [ ] **Env templates first** — create `backend/.env.example` + `frontend/.env.example` env-var contracts (moved up from `feat/fastapi-backend` / `feat/web-mvp`) so all project API keys can be populated in local `.env` files up front, avoiding mid-development pauses to add keys later. Also: update `config.py` module docstring (currently states the contract lands on a later branch) and run `./scripts/setup.sh` to scaffold `backend/.env` (with auto-generated `BACKEND_API_KEY`) + `frontend/.env.local` (with the key synced from backend).
-- [ ] `backend/src/customs_agent/rag/chunker.py` — section-header chunking with `section_kind` metadata (Fork 14)
-- [ ] `backend/scripts/build_index.py` — OpenAI embeddings → ChromaDB + `bm25.pkl` + `manifest.json` (Fork 17)
-- [ ] `backend/src/customs_agent/rag/retriever.py` — hybrid BM25 + semantic with RRF, top-K=5 (Fork 16)
-- [ ] Unit tests for chunker + retriever in `backend/tests/unit/rag/`
+- [x] **Env templates first** — `backend/.env.example` + `frontend/.env.example` env-var contracts (21 backend vars across 7 logical sections; frontend Next.js proxy pattern with synced `BACKEND_API_KEY`). `config.py` module docstring updated to point at the committed contract. `./scripts/setup.sh` ran cleanly (generated `backend/.env` with `openssl`-derived `BACKEND_API_KEY`; synced to `frontend/.env.local`). User edited `.env.example` to swap `LANGFUSE_HOST` to the US-region URL.
+- [x] `backend/src/customs_agent/rag/chunker.py` — registry-driven chunker (Fork 14); `CHUNKS_REGISTRY` declares 39 chunks across 9 `section_kind` buckets; all 8 `EXPECTED_CITATIONS` chunk IDs (`rule_1_date_filtering` etc.) emitted verbatim.
+- [x] `backend/scripts/build_index.py` — `make build-index` produces `chroma_db/` (ChromaDB persistent + OpenAI `text-embedding-3-small`) + `bm25.pkl` (pickled `BM25Okapi`) + `manifest.json` (embedding model + UTC timestamp + sorted chunk IDs + per-source-file SHA-256). Idempotent. Real index built end-to-end against OpenAI (~$0.0001 cost; 39 chunks in ~3s).
+- [x] `backend/src/customs_agent/rag/retriever.py` — `HybridRetriever` with RRF (constant=60, top-K=5, candidate pool 10); shared `_tokenize.py` preserves dotted numeric sequences (`9903.88.15`) as single tokens. `from_artifacts()` reads disk; direct `__init__` accepts injected stubs for tests.
+- [x] Unit tests for chunker + retriever in `backend/tests/unit/rag/` — 16 tests; mock ChromaDB + real BM25 (offline). Hard chunk-ID contract test enforces every ID in `tests/ground_truth.py:EXPECTED_CITATIONS`.
 
 #### Branch: `feat/prompts-and-tools`
 
-- [ ] `backend/prompts/*.md` — 7 section files: persona, scope, data_overview, knowledge_always_on, behavioral, tools_guidance, output_format (Fork 27)
-- [ ] `backend/src/customs_agent/agent/prompt.py` — templated system prompt + `PROMPT_VERSION` constant + cache boundary marker
-- [ ] `backend/src/customs_agent/rag/always_on.py` — assembles always-on knowledge block from chunks (Fork 15)
-- [ ] `backend/src/customs_agent/tools/_filters.py` — `EntryFilters` Pydantic with `Literal` enums (Fork 21)
-- [ ] `backend/src/customs_agent/tools/_shared.py` — `build_where_clause` (parameterized) + `safe_execute` SELECT-only guardrail + `ToolResult` envelope
-- [ ] `backend/src/customs_agent/tools/_allowlists.py` — `ALLOWED_GROUP_BY`, `ALLOWED_AGGREGATIONS`, `ALLOWED_ORDER_BY` for `query_entries` (Fork 50)
-- [ ] Specialized tools (Day 2 set): `effective_duty_rate.py`, `total_duty_breakdown.py`, `hold_summary.py` (Fork 22)
-- [ ] Builder + lookup: `query_entries.py`, `lookup_knowledge.py`
+- [x] `backend/prompts/*.md` — 7 section files (`persona`, `scope`, `data_overview`, `knowledge_always_on`, `behavioral`, `tools_guidance`, `output_format`); `PROMPT_VERSION` 1.0.0 baseline; snapshot at `backend/tests/snapshots/system_prompt.md`.
+- [x] `backend/src/customs_agent/agent/prompt.py` — `PROMPT_VERSION` + `SECTION_ORDER` + `@cache`'d `build_static_system_prompt()` + `STATIC_SYSTEM_PROMPT` module constant; HTML comment cache-boundary marker leads the assembled prompt.
+- [x] `backend/src/customs_agent/rag/always_on.py` — `ALWAYS_ON_KINDS = frozenset({rule, quirk, metric})`; deterministic sort key `(section_kind, section_id, chunk_id)` so the cached prefix doesn't drift; renders 14 chunks (6 rules + 4 quirks + 4 metrics) to `prompts/knowledge_always_on.md`.
+- [x] `backend/src/customs_agent/tools/_filters.py` — `CustomerCode` / `CountryCode` / `PortCode` Literal aliases; `EntryFilters` BaseModel with 9 fields, `include_shell: bool = False` default, date-range coherence + period-exclusivity validators, `extra="forbid"`.
+- [x] `backend/src/customs_agent/tools/_shared.py` — `Citation` / `ToolMeta` / `ToolResult` Pydantic envelope (`citations=Field(default_factory=list)` per Copilot review); `build_where_clause` with `?` placeholders; `safe_execute` SELECT/WITH-only guardrail; `_count_shells_excluded` helper.
+- [x] `backend/src/customs_agent/tools/_allowlists.py` — `ALLOWED_GROUP_BY` / `ALLOWED_AGGREGATIONS` / `ALLOWED_ORDER_BY` frozensets (Fork 50). Per-view column sets (`ENTRIES_V_COLUMNS`, `ENTRY_LINES_V_COLUMNS`, `_ONLY` differences) added on `feat/agent-loop` for the view-compat validator + drift test.
+- [x] Specialized tools (Day 2 set): `effective_duty_rate.py` (Q5), `total_duty_breakdown.py` (Q4 + entry/line-grain auto-switch), `hold_summary.py` (Q6 + 5%/8% benchmarks).
+- [x] Builder + lookup: `query_entries.py` (Q1/Q2/Q3/Q11; allowlist `field_validator`s; aggregation parser maps `sum(col)` → `col` alias; view-compat `model_validator` added on `feat/agent-loop`), `lookup_knowledge.py` (Q10; thin retriever wrapper, no synthesis). `tools/__init__.py` exports `TOOL_REGISTRY` + `build_anthropic_tool_def` + `format_query_entries_description`. Also: `data/validation.py` refactored to derive `EXPECTED_CUSTOMERS` / `EXPECTED_COUNTRIES` / `EXPECTED_PORTS` from the Literal aliases via `typing.get_args` (single source of truth).
 
 #### Branch: `feat/agent-loop`
 
-- [ ] `backend/src/customs_agent/agent/loop.py` — tool-calling loop, MAX_ITERATIONS=5, dedup, token-budget guard, graceful degradation (Fork 23)
-- [ ] `backend/src/customs_agent/agent/refusal.py` — 5-category refusal routing (Fork 25)
-- [ ] `backend/src/customs_agent/agent/validator.py` — citation marker validation (strip orphans) (Fork 28)
-- [ ] `backend/src/customs_agent/api/chat.py` — `ChatRequest` / `ChatResponse` Pydantic models (Fork 28)
-- [ ] `backend/src/customs_agent/tools/query_entries.py` — add `model_validator` on `QueryEntriesInput` rejecting view-incompatible `filters` / `group_by` / `aggregations`, reusing the per-view column sets from the boot-time `DESCRIBE entries_v` / `DESCRIBE entry_lines_v` calls this branch wires for the `format_query_entries_description()` placeholder substitution (PR #5 Copilot Comment 4 follow-up; centralizes per-view column knowledge so it isn't duplicated across `_allowlists.py` and the bootstrap path)
+- [x] `backend/src/customs_agent/agent/loop.py` — sync `run_agent(ctx, user_message, history, request_id, settings=…)` per Fork 23 pseudocode. Steps: retrieve top-5 → dedup against always-on → prune history (G9) → tool-calling loop with prompt cache marker, dedup, iteration + budget guards → refusal detection → marker validation → sidecar assembly with shared citation/tool_call ID space (citations 1..N, tool_calls N+1..N+M). Six structlog events. Cost estimation passes `0.0` with a TODO pointing at `feat/langfuse-traces` (G11 pricing module).
+- [x] `backend/src/customs_agent/agent/refusal.py` — 5-category routing (Fork 25); hidden-marker detection mechanism locked this session (`<!-- refusal:<category> -->` prefix). `REFUSAL_MARKER_RE` tolerates whitespace + case; unknown categories logged + treated as non-refusal. System-prompt rule appended to `prompts/scope.md`; `PROMPT_VERSION` bumped 1.0.0 → 1.1.0; snapshot refreshed.
+- [x] `backend/src/customs_agent/agent/validator.py` — Fork 28 marker validator verbatim; orphan `[N]` markers stripped silently with structlog `agent.hallucinated_citation` warning naming invalid + valid ID sets. Structural `_HasId` Protocol keeps module decoupled from concrete `Citation` / `ToolCallTrace` types.
+- [x] **`backend/src/customs_agent/agent/contracts.py`** — full set of 7 Pydantic wire types (`Message`, `ChatRequest`, `Citation`, `ToolCallTrace`, `Assumption`, `RefusalCategory` alias, `ResponseMeta`, `ChatResponse`); `extra="forbid"` everywhere; `Field(default_factory=list)` on every list. `backend/src/customs_agent/api/chat.py` ships as a 5-line re-export shim that honors the original PROGRESS.md `api/chat.py` checklist item without duplicating definitions (the agent loop's primary data model belongs alongside it; the FastAPI endpoint on `feat/fastapi-backend` will import via the shim).
+- [x] `backend/src/customs_agent/tools/query_entries.py` — added `model_validator` on `QueryEntriesInput` rejecting view-incompatible `filters` / `group_by` / `aggregations` (PR #5 Copilot Comment 4 fix). Per-view column knowledge ships as hardcoded `ENTRIES_V_COLUMNS` / `ENTRY_LINES_V_COLUMNS` frozensets in `tools/_allowlists.py` + a drift-detection test (`test_allowlists.py`) that runs `DESCRIBE` against live in-memory DuckDB and fails on mismatch. Companion: `agent/bootstrap.py:build_tool_definitions()` substitutes the `{available_columns_*}` placeholders in the `query_entries` description at app startup via `information_schema.columns` (SELECT-friendly so `safe_execute` passes), closing the Fork 21 auto-generation deferral from `feat/prompts-and-tools`. Also created: `agent/bootstrap.py` (`AgentContext` frozen dataclass + `build_agent_context()` factory + `compute_always_on_chunk_ids()`), `agent/_dispatch.py` (per-tool wrappers binding `ctx.con` vs `ctx.retriever`), `agent/history.py` (G9 pruner with injectable `token_counter`).
 
 #### Branch: `test/backend-units`
 
-- [ ] Unit tests for tools: per-file in `backend/tests/unit/tools/`
-- [ ] Unit tests for data layer: `tests/unit/data/test_load.py`, `test_views.py`, `test_validation.py`
-- [ ] Unit tests for agent primitives: `test_refusal_classifier.py`, `test_marker_validator.py`
+- [x] Unit tests for tools: per-file in `backend/tests/unit/tools/` _(already shipped on prior branches alongside source modules — `test_filters.py`, `test_shared.py`, `test_allowlists.py`, plus one test file per of the 5 tools)._
+- [ ] Unit tests for data layer: `tests/unit/data/test_load.py`, `test_views.py`, `test_validation.py` _(the only remaining work for this branch)._
+- [x] Unit tests for agent primitives: `test_refusal_classifier.py`, `test_marker_validator.py` _(shipped on `feat/agent-loop` as `tests/unit/agent/test_refusal.py` + `test_validator.py`, plus `test_history.py`, `test_contracts.py`, `test_bootstrap.py`, `test_dispatch.py`, `test_loop.py`)._
 
 ### Day 3 — Deploy + MVP
 
@@ -301,6 +301,24 @@ branch (and therefore one PR). The branch list below maps 1:1 to the planned
 - **Decisions / surprises**: <only if non-routine — design changes, scope shifts, blockers, dep surprises>
 - **Next session**: <1 line — next branch or checklist item to start>
 ```
+
+---
+
+### 2026-05-27 — Day 2 agent core (4 branches shipped)
+
+- **Branch(es) touched**: `feat/rag-pipeline`, `feat/prompts-and-tools`, `chore/copilot-review-cleanup`, `feat/agent-loop`, `main` (admin).
+- **PRs**: merged 4 (`feat/rag-pipeline`, `feat/prompts-and-tools`, `chore/copilot-review-cleanup`, `feat/agent-loop`); 1 admin commit to `main` (one-line `PROGRESS.md` edit adding the PR #5 Copilot Comment 4 deferral to `feat/agent-loop`'s checklist).
+- **Progress**: 18 commits, 249 unit tests passing in ~3s. RAG pipeline (39 chunks, hybrid retriever with RRF, real index built end-to-end via `make build-index`); 7-file system prompt + 5 typed tools (`effective_duty_rate`, `total_duty_breakdown`, `hold_summary`, `query_entries`, `lookup_knowledge`) with `TOOL_REGISTRY` + Anthropic spec builder; agent runtime (`agent/loop.py` orchestrator + `bootstrap.py` `AgentContext` + `_dispatch.py` per-tool wrappers + `validator.py` marker stripping + `refusal.py` detection + `history.py` G9 pruning + `contracts.py` 7 Pydantic wire types). All 4 branches landed `make lint-backend` + `make typecheck-backend` clean.
+- **Decisions / surprises**:
+  - **Refusal detection mechanism (Fork 25 spec gap)** — chose hidden marker prefix `<!-- refusal:<category> -->` over heuristic prose matching, a separate classifier LLM call, or a stub. Deterministic, cheap, tolerant of LLM phrasing drift (regex allows leading whitespace, internal whitespace, case-insensitive `Refusal`). Authored as a `prompts/scope.md` rule so the LLM is taught to emit it; matched by `agent/refusal.py:detect_refusal()`. Bumped `PROMPT_VERSION` to `1.1.0` to rotate the prompt cache deliberately. Unknown categories logged at WARNING + treated as non-refusal so we never silently fabricate a category. Captured in CLAUDE.md Critical Gotcha #12 and `context/04-agent-and-tools.md` §"Refusal detection mechanism".
+  - **Pydantic contracts placement (spec ↔ PROGRESS.md conflict)** — spec said `agent/contracts.py`, PROGRESS.md said `api/chat.py`. Resolved by putting all 7 types in `agent/contracts.py` with `api/chat.py` as a 5-line re-export shim. The agent loop's primary data model belongs alongside it; the FastAPI endpoint can import via either path. PROGRESS.md `feat/agent-loop` checklist updated this session.
+  - **`query_entries` column auto-generation closed** — Fork 21's "auto-generated column list at boot" deferral from `feat/prompts-and-tools` shipped on `feat/agent-loop` via `agent/bootstrap.py:build_tool_definitions()`. Uses `information_schema.columns` rather than `DESCRIBE` (DuckDB rejects CTE-wrapped `DESCRIBE`, and `DESCRIBE` doesn't pass the SELECT-only `safe_execute` guard). Captured in CLAUDE.md Critical Gotcha #13 and `context/04-agent-and-tools.md` §"Schema fingerprint".
+  - **View-compatibility validator (PR #5 Copilot Comment 4 fix)** — chose hardcoded `ENTRIES_V_COLUMNS` / `ENTRY_LINES_V_COLUMNS` frozensets in `_allowlists.py` + drift-detection test over boot-time `DESCRIBE` registration. Stateless validator, test-friendly, no module-level mutable state. Drift test runs `DESCRIBE` on live in-memory DuckDB and fails when constants diverge from `views.py`. Captured in `context/04-agent-and-tools.md` §"View-compatibility validator" and `context/09-security.md` Control 7 (now four structural protections, not three).
+  - **PR #5 Copilot review** — addressed 4 of 5 comments on `chore/copilot-review-cleanup` (one logical-chunk commit, ~4 files, 3 regression tests). Comment 1: `ToolResult.citations` → `Field(default_factory=list)`. Comment 2: removed unused `_FIELD_TO_COLUMN` dict. Comment 3: fixed `build_where_clause` docstring contradiction. Comment 5: removed dead `if row is None:` branches. Comment 4 deferred to `feat/agent-loop` and shipped there.
+  - **`test/backend-units` scope shrinkage** — three of the four original bullets (tools tests + agent-primitive tests) already shipped on prior branches alongside their source modules (this project's per-branch testing discipline). Remaining scope is the data-layer suite (`tests/unit/data/test_{load,views,validation}.py`). Checklist updated this session to reflect.
+  - **CLAUDE.md Critical Gotchas updated this session**: #8 strengthened (snapshot test enforces `PROMPT_VERSION` bumps); #10 strengthened (view-compat `model_validator` complements the existing column allowlists + SELECT-only guard); new #12 (refusal marker mechanism); new #13 (`query_entries` description placeholders filled at boot via `bootstrap.py`).
+  - **Workflow note** — `chore/copilot-review-cleanup` introduced a new commit-rewriting pattern. User combined commits 2 + 3 into one commit by accident on `feat/prompts-and-tools`; resolved cleanly via `git reset --mixed HEAD~1` before push (commit was local-only). Documented the safe local-reset path for future similar slips.
+- **Next session**: `test/backend-units` for the data-layer unit tests (`tests/unit/data/test_load.py`, `test_views.py`, `test_validation.py`). After that, Day 3 begins with `feat/fastapi-backend`.
 
 ---
 

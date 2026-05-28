@@ -350,6 +350,49 @@ entry_lines_v` at boot. This gives the LLM the column knowledge it needs
 to build correct filter/group-by/aggregation specs without putting the
 full schema in the system prompt.
 
+**Implementation note (`feat/agent-loop`):** The auto-generation lives
+in `backend/src/customs_agent/agent/bootstrap.py:build_tool_definitions()`.
+The static description in `tools/query_entries.py` carries the literal
+placeholder tokens `{available_columns_entries_v}` and
+`{available_columns_entry_lines_v}`; at app startup,
+`build_tool_definitions(con)` runs `information_schema.columns` against
+both views (via `safe_execute` so the SELECT-only guard still applies)
+and substitutes the live column lists through
+`tools.__init__.format_query_entries_description(...)`. The Anthropic
+`messages.create(tools=...)` call receives the substituted definitions;
+the placeholder tokens are never sent to the model.
+
+### View-compatibility validator on `QueryEntriesInput`
+
+A `model_validator` on `QueryEntriesInput` (added on `feat/agent-loop`
+per PR #5 Copilot review Comment 4) rejects view-incompatible
+combinations at the schema boundary BEFORE the SQL builder runs:
+
+- `view="entries_v"` with `filters.country_of_origin_code` set →
+  rejected (country is line-grain).
+- `view="entries_v"` with a `group_by` entry in `ENTRY_LINES_V_ONLY`
+  (e.g., `hts_code`, `mid`) → rejected.
+- `view="entries_v"` with an `aggregations` entry referencing a
+  line-grain column (e.g., `sum(entered_value)` — the entries_v
+  equivalent is `sum(total_entered_value)`) → rejected.
+- Symmetric: `view="entry_lines_v"` with an entries_v-only rollup
+  (e.g., `sum(total_entered_value)`) → rejected.
+
+The per-view column sets (`ENTRIES_V_COLUMNS`,
+`ENTRY_LINES_V_COLUMNS`, plus the precomputed `_ONLY` differences)
+ship as hardcoded frozensets in `tools/_allowlists.py`; a drift
+test (`tests/unit/tools/test_allowlists.py`) runs `DESCRIBE` on a
+live in-memory DuckDB and fails loudly when the constants diverge
+from `views.py`. This is intentionally separate from the boot-time
+auto-generation above — the description column list reflects all
+columns the LLM might see; the safety allowlist is the curated
+subset of columns the LLM may use in `group_by` / `aggregations` /
+`order_by`.
+
+Error messages include the bad value, the incompatible view, AND
+the correct view to switch to, so the LLM can self-correct on the
+next iteration of the tool-calling loop.
+
 ---
 
 ## Agent Loop (Fork 23)
@@ -578,6 +621,58 @@ A reviewer asking "what can you do?" is genuinely trying to learn the
 agent's surface, not adversarial or off-topic. The agent returns a brief
 capabilities list (drawn from `tools_guidance.md` content) plus 2-3
 starter prompt examples. Strong UX win at zero cost.
+
+### Refusal detection mechanism (locked on `feat/agent-loop`)
+
+The five categories above describe *what* the agent does on refusal;
+the *mechanism* by which the backend recognises a refusal is a hidden
+marker prepended by the LLM. The system-prompt rule lives in
+`prompts/scope.md` ("Internal refusal marker rule" section) and
+requires the four refusal categories (everything except `meta`,
+which is in-scope) to start the response with an HTML comment:
+
+```
+<!-- refusal:<category> -->
+I'm focused on customs analytics for MHF, PCA, and SAG over
+October 2024 – March 2025. I can't help with weather, but here are
+some things I can answer: …
+```
+
+The backend matcher in `agent/refusal.py` strips the marker and
+returns `(category, stripped_prose)`:
+
+```python
+REFUSAL_MARKER_RE = re.compile(
+    r"^\s*<!--\s*refusal\s*:\s*(\w+)\s*-->\s*\n?",
+    re.IGNORECASE,
+)
+
+def detect_refusal(prose: str) -> tuple[RefusalCategory | None, str]:
+    match = REFUSAL_MARKER_RE.match(prose)
+    if not match:
+        return None, prose
+    category = match.group(1).lower()
+    if category not in VALID_CATEGORIES:
+        log.warning("agent.unknown_refusal_category", category=category)
+        return None, prose
+    return category, prose[match.end():]
+```
+
+The regex tolerates leading whitespace, internal whitespace around
+the colon, and case-insensitive `refusal` to be forgiving of small
+LLM phrasing drift. Unknown categories (e.g., `<!-- refusal:typo -->`)
+are logged at WARNING and treated as non-refusal — we never silently
+fabricate a category that the agent might not have intended.
+
+**Why not heuristic prose matching?** Phrase-based detection
+("I'm focused on…", "I can't help with…") would false-positive on
+legitimate in-scope prose and false-negative on phrasing drift.
+**Why not a separate classifier LLM call?** Doubles per-turn cost
+and latency for a problem the system prompt can solve directly.
+The marker mechanism is deterministic, cheap, and explicit about
+the agent's own classification — bumps `PROMPT_VERSION` (`1.0.0` →
+`1.1.0` when the rule landed) intentionally so the prompt cache
+rotates at the same moment the detector is wired.
 
 ### Single source of truth for suggestion lists
 

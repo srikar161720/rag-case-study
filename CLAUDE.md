@@ -303,13 +303,26 @@ forgotten. Every session must remember them.
 7. **HTS code format**: always `XXXX.XX.XXXX` (with dots) when displayed in
    prose. Per KB §1 HTS Code.
 8. **`PROMPT_VERSION` bumps rotate the prompt cache** (Fork 55). Bump it
-   intentionally when `prompts/*` changes; otherwise leave it alone.
+   intentionally when `prompts/*` changes; otherwise leave it alone. The
+   snapshot test at `backend/tests/unit/agent/test_prompt_snapshot.py`
+   enforces this — any edit to a file under `backend/prompts/` MUST
+   land with both a `PROMPT_VERSION` bump AND a refresh of
+   `backend/tests/snapshots/system_prompt.md` in the same commit, or
+   the snapshot test fails. Regenerate via
+   `cd backend && uv run python -m customs_agent.rag.always_on` when
+   the always-on block changes, plus a one-liner to dump the assembled
+   prompt to the snapshot path (documented in the snapshot test's
+   docstring).
 9. **Dataset SHA-256 pin**: `ground_truth.json` carries the SHA of the CSV it
    was generated against; eval tests fail fast on drift (Fork 43).
 10. **No raw SQL surface**: the agent has 8 typed tools (Fork 22). There is
     no `execute_sql(query)` tool. Parameterized `?` placeholders for values
     + Pydantic-enforced column-name allowlists for `group_by` / `aggregations`
-    / `order_by` (Fork 50).
+    / `order_by` (Fork 50). The view-compatibility `model_validator` on
+    `QueryEntriesInput` also rejects line-grain filters / columns on
+    `entries_v` (and entry-grain rollups on `entry_lines_v`) at the
+    schema boundary, with error messages naming the correct view so the
+    LLM can self-correct.
 11. **`structlog` is intentionally unconfigured pre-`feat/observability-base`**.
     The data layer's `validation.py` already calls
     `structlog.get_logger()` and emits a boot-time INFO event using the
@@ -319,6 +332,32 @@ forgotten. Every session must remember them.
     `feat/observability-base`. Until then, do not "fix" the unconfigured
     state; once that branch lands, existing callers pick up the full
     config automatically at module import.
+12. **Refusal marker mechanism** (Fork 25, locked on `feat/agent-loop`).
+    The agent loop detects refusals by parsing an HTML-comment marker
+    at the start of the LLM's response:
+    `<!-- refusal:<category> -->`. The system-prompt rule that teaches
+    the agent to emit the marker lives in `backend/prompts/scope.md`
+    ("Internal refusal marker rule" section). The backend regex
+    (`agent/refusal.py:REFUSAL_MARKER_RE`) tolerates leading
+    whitespace, internal whitespace, and case-insensitive `Refusal`.
+    Categories: `off_domain` / `out_of_range` / `unmapped` /
+    `adversarial`. **`meta` is in-scope** — questions like "what can
+    you do?" get full normal answers without the marker. Unknown
+    categories (e.g., `<!-- refusal:typo -->`) are logged at WARNING
+    and treated as non-refusal so we never silently fabricate a category.
+13. **`query_entries` tool description placeholders are filled at boot**
+    (Fork 21, closed on `feat/agent-loop`). The static description in
+    `backend/src/customs_agent/tools/query_entries.py` carries
+    `{available_columns_entries_v}` and
+    `{available_columns_entry_lines_v}` placeholder tokens.
+    `agent/bootstrap.py:build_tool_definitions(con)` runs
+    `information_schema.columns` against both views and substitutes the
+    live column lists via
+    `tools.__init__.format_query_entries_description(...)`. The
+    Anthropic call uses the substituted definitions; the static
+    placeholder is never sent. Do not hardcode the column list in the
+    source — and never call the tool registration path without going
+    through the bootstrap helper.
 
 ---
 

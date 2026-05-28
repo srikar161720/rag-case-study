@@ -234,47 +234,44 @@ self-DoS via polling your own infrastructure is a non-goal.
 
 ```python
 # backend/src/customs_agent/api/chat.py
-from typing import Annotated, Literal, Optional
-from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field
+#
+# Per the implementation locked on `feat/agent-loop`: the FULL set of
+# wire-level Pydantic types (Message, ChatRequest, Citation,
+# ToolCallTrace, Assumption, RefusalCategory, ResponseMeta, ChatResponse)
+# lives in `customs_agent.agent.contracts`. This module is a thin
+# FastAPI router that imports the contracts and binds them to the
+# routes; PROGRESS.md's "api/chat.py — ChatRequest / ChatResponse"
+# checklist item is honored by the re-export shim that also lives in
+# `api/chat.py` so callers that want only the request/response surface
+# can `from customs_agent.api.chat import ChatRequest, ChatResponse`.
 
+from fastapi import APIRouter, Depends, Request
+
+from customs_agent.agent.bootstrap import AgentContext
+from customs_agent.agent.contracts import ChatRequest, ChatResponse
 from customs_agent.agent.loop import run_agent
-from customs_agent.api.auth import require_api_key
 from customs_agent.api._rate_limit import limiter
+from customs_agent.api.auth import require_api_key
 from customs_agent.config import settings
 
-
 router = APIRouter()
-
-
-class Message(BaseModel):
-    role: Literal["user", "assistant"]
-    content: str = Field(..., max_length=2000)   # Fork 49 layer 1
-
-
-class ChatRequest(BaseModel):
-    messages: list[Message] = Field(..., min_length=1, max_length=100)
-    conversation_id: Optional[str] = None        # frontend-generated UUID; for trace correlation
-
-
-# Response models live alongside the agent (Fork 28 contract):
-# ChatResponse, Citation, ToolCallTrace, Assumption, ResponseMeta
-# imported here for the route signature.
-from customs_agent.agent.contracts import ChatResponse
 
 
 @router.post("/chat", dependencies=[Depends(require_api_key)])
 @limiter.limit(f"{settings.ratelimit_chat_per_minute}/minute")
 async def chat(request: Request, body: ChatRequest) -> ChatResponse:
     request_id = request.state.request_id   # set by request_logging_middleware
-    return await run_agent(
+    ctx: AgentContext = request.app.state.agent_ctx   # built once at startup
+    return run_agent(
+        ctx,
         user_message=body.messages[-1].content,
-        history=[m.model_dump() for m in body.messages[:-1]],
-        conversation_id=body.conversation_id,
+        history=body.messages[:-1],
         request_id=request_id,
-        stream=False,
     )
 ```
+
+(The non-streaming `run_agent` shipped sync on `feat/agent-loop`; the
+async streaming variant lands on `feat/streaming` per Fork 29 Phase 1.)
 
 ### `POST /chat/stream` — SSE streaming (Fork 29)
 

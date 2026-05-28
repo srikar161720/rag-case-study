@@ -407,13 +407,14 @@ langfuse_context.update_current_observation(
 no `execute_sql(query)` tool.** Three structural protections backed by
 a SELECT-only execution guardrail.
 
-#### Three structural protections
+#### Four structural protections
 
 | Layer | Mechanism | What it stops |
 |---|---|---|
 | **Parameterized values** | `build_where_clause(filters)` builds SQL with `?` placeholders; values passed separately to DuckDB | Classic SQL injection via filter values |
 | **Typed `Literal` enums** | Pydantic `Literal["MHF", "PCA", "SAG"]` etc. on `EntryFilters` | Invalid values fail at Pydantic boundary; never reach SQL |
-| **Column-name allowlists** | `ALLOWED_GROUP_BY`, `ALLOWED_AGGREGATIONS`, `ALLOWED_ORDER_BY` frozensets validated by Pydantic field validators on `QueryEntriesArgs` | Column-name injection (which **can't** be parameterized — column names are SQL syntax, not values) |
+| **Column-name allowlists** | `ALLOWED_GROUP_BY`, `ALLOWED_AGGREGATIONS`, `ALLOWED_ORDER_BY` frozensets validated by Pydantic field validators on `QueryEntriesInput` | Column-name injection (which **can't** be parameterized — column names are SQL syntax, not values) |
+| **View-compat validator** | `model_validator` on `QueryEntriesInput` rejects line-grain filters / columns when `view="entries_v"` (and entry-grain rollups when `view="entry_lines_v"`) using the hardcoded `ENTRIES_V_ONLY` / `ENTRY_LINES_V_ONLY` frozensets | DuckDB `Binder Error` runtime failures mid-tool-call; the agent gets a clear schema-level rejection naming the correct view to switch to (added on `feat/agent-loop` per PR #5 Copilot review Comment 4) |
 
 #### Why column-name allowlists matter
 
