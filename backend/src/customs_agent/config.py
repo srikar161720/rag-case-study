@@ -11,10 +11,9 @@ represented as sections inside this single class, not as separate models —
 this matches the locked spec in ``context/05-api-and-backend.md`` and keeps
 env-var binding flat and predictable.
 
-Note on instantiation: this module defines the ``Settings`` class only — the
-module-level singleton ``settings = Settings()`` instantiation is deferred
-to ``main.py`` on the ``feat/fastapi-backend`` branch. ``Settings()`` raises
-``ValidationError`` at construction time if the three required env vars
+Module-level ``settings = Settings()`` singleton is instantiated at the
+bottom of this file (``feat/fastapi-backend``). The first import of this
+module raises ``ValidationError`` if the three required env vars
 (``ANTHROPIC_API_KEY``, ``BACKEND_API_KEY``, ``ALLOWED_ORIGINS``) are absent.
 """
 
@@ -123,3 +122,11 @@ class Settings(BaseSettings):
         entries = [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
         patterns = [o for o in entries if o.startswith("^") and o.endswith("$")]
         return "|".join(f"({p})" for p in patterns) if patterns else None
+
+
+# Module-level singleton. Constructed at import time; raises pydantic
+# ``ValidationError`` immediately on a missing required env var so the
+# app fails loudly at boot rather than 500-ing later under traffic.
+# mypy strict can't see that pydantic-settings populates required fields
+# from the environment — the call-arg ignore is the canonical workaround.
+settings = Settings()  # type: ignore[call-arg]
