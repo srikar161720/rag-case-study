@@ -47,12 +47,14 @@ import re
 from typing import Any, Literal
 
 import duckdb
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from customs_agent.tools._allowlists import (
     ALLOWED_AGGREGATIONS,
     ALLOWED_GROUP_BY,
     ALLOWED_ORDER_BY,
+    ENTRIES_V_ONLY,
+    ENTRY_LINES_V_ONLY,
 )
 from customs_agent.tools._filters import EntryFilters
 from customs_agent.tools._shared import (
@@ -149,6 +151,71 @@ class QueryEntriesInput(BaseModel):
             )
         return v
 
+    @model_validator(mode="after")
+    def _check_view_compatibility(self) -> "QueryEntriesInput":
+        """Reject filter / group_by / aggregation combos that don't exist on
+        the selected view (PR #5 Copilot Comment 4 follow-up).
+
+        Without this guard, the request validates at the Anthropic
+        tool-use boundary but DuckDB raises a Binder Error mid-call when
+        the SQL hits a missing column. Schema-level rejection gives the
+        agent a clear error message + the right view to switch to,
+        rather than an opaque binder failure.
+
+        Runs ``mode="after"`` so the three field-validators above have
+        already rejected unknown columns; this validator only sees
+        allowlisted names and just sorts them into entry-grain vs
+        line-grain buckets.
+        """
+        if self.view == "entries_v":
+            if self.filters.country_of_origin_code is not None:
+                raise ValueError(
+                    "country_of_origin_code is a line-grain filter and is not "
+                    "available on entries_v; switch view to 'entry_lines_v' "
+                    "or remove the filter."
+                )
+            bad_group_by = set(self.group_by) & ENTRY_LINES_V_ONLY
+            if bad_group_by:
+                raise ValueError(
+                    f"group_by columns {sorted(bad_group_by)} are line-grain "
+                    f"only and not available on entries_v; switch view to "
+                    f"'entry_lines_v'."
+                )
+            bad_aggs = {
+                agg for agg in self.aggregations
+                if (col := _aggregation_column(agg)) is not None
+                and col in ENTRY_LINES_V_ONLY
+            }
+            if bad_aggs:
+                raise ValueError(
+                    f"aggregations {sorted(bad_aggs)} reference line-grain "
+                    f"columns not available on entries_v; switch view to "
+                    f"'entry_lines_v' or use the entry-grain alias (e.g., "
+                    f"'sum(total_entered_value)' instead of 'sum(entered_value)')."
+                )
+        elif self.view == "entry_lines_v":
+            bad_group_by = set(self.group_by) & ENTRIES_V_ONLY
+            if bad_group_by:
+                raise ValueError(
+                    f"group_by columns {sorted(bad_group_by)} are entry-grain "
+                    f"aggregate columns and not available on entry_lines_v; "
+                    f"switch view to 'entries_v'."
+                )
+            bad_aggs = {
+                agg for agg in self.aggregations
+                if (col := _aggregation_column(agg)) is not None
+                and col in ENTRIES_V_ONLY
+            }
+            if bad_aggs:
+                raise ValueError(
+                    f"aggregations {sorted(bad_aggs)} reference entry-grain "
+                    f"aggregate columns (entries_v has 'total_*' rollups) not "
+                    f"available on entry_lines_v; switch view to 'entries_v' "
+                    f"or use the line-grain column (e.g., 'sum(entered_value)' "
+                    f"instead of 'sum(total_entered_value)')."
+                )
+        return self
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Aggregation parsing
@@ -177,6 +244,21 @@ def _parse_aggregation(agg: str) -> tuple[str, str]:
     func_upper = func.upper()
     alias = col if func == "sum" else f"{func}_{col}"
     return f"{func_upper}({col})", alias
+
+
+def _aggregation_column(agg: str) -> str | None:
+    """Extract the bare column name referenced by an aggregation.
+
+    Returns ``None`` for the two special-case aggregations
+    (``count_distinct_entries``, ``count_lines``) — neither references
+    a user-controlled column so neither participates in the view-compat
+    check. Returns the column name otherwise (e.g., ``"entered_value"``
+    for ``"sum(entered_value)"``).
+    """
+    if agg in ("count_distinct_entries", "count_lines"):
+        return None
+    match = _AGG_RE.match(agg)
+    return match.group(2) if match else None
 
 
 def _resolve_order_by(col_or_agg: str) -> str:
