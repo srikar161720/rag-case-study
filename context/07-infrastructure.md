@@ -22,7 +22,7 @@ Monorepo at the existing repo root. `data/` and `knowledge/` are
 part of `chore/scaffold-monorepo`):
 
 ```
-interview-case-study/                       ← repo root
+rag-case-study/                       ← repo root
 ├── .git/
 ├── .gitignore                              ← Python + Node + generated artifacts
 ├── .gitattributes                          ← marks api-types.ts as linguist-generated
@@ -432,7 +432,7 @@ COPY --chown=app:app src/     /app/src/
 COPY --chown=app:app prompts/ /app/prompts/
 
 # OCI labels (traceability for production registries)
-LABEL org.opencontainers.image.source="https://github.com/<user>/interview-case-study" \
+LABEL org.opencontainers.image.source="https://github.com/<user>/rag-case-study" \
       org.opencontainers.image.description="Customs analytics conversational agent" \
       org.opencontainers.image.licenses="MIT"
 

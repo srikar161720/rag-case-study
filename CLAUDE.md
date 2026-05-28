@@ -182,7 +182,7 @@ When merged, reply "continue" and tell me the next branch
 ## Repo Layout
 
 ```
-interview-case-study/
+rag-case-study/
 ├── CLAUDE.md                       ← session-start backbone (this file)
 ├── PROGRESS.md                     ← phase checklist + session log
 ├── README.md                       ← project README (Day 7 deliverable)
