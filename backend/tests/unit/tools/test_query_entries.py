@@ -232,3 +232,120 @@ def test_default_aggregation_is_count_distinct_entries() -> None:
     """No explicit aggregations → defaults to count_distinct_entries."""
     inp = QueryEntriesInput()
     assert inp.aggregations == ["count_distinct_entries"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# View-compatibility validator (PR #5 Copilot Comment 4 follow-up)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.unit
+def test_country_filter_on_entries_v_rejected() -> None:
+    """country_of_origin_code is line-grain and not in entries_v."""
+    with pytest.raises(ValidationError) as exc:
+        QueryEntriesInput(
+            view="entries_v",
+            filters=EntryFilters(country_of_origin_code="CN"),
+        )
+    assert "country_of_origin_code" in str(exc.value)
+    assert "entries_v" in str(exc.value)
+
+
+@pytest.mark.unit
+def test_hts_code_group_by_on_entries_v_rejected() -> None:
+    """hts_code is line-grain (entry_lines_v) only."""
+    with pytest.raises(ValidationError) as exc:
+        QueryEntriesInput(view="entries_v", group_by=["hts_code"])
+    assert "hts_code" in str(exc.value)
+    assert "line-grain" in str(exc.value)
+
+
+@pytest.mark.unit
+def test_mid_group_by_on_entries_v_rejected() -> None:
+    """mid (manufacturer ID) is line-grain only."""
+    with pytest.raises(ValidationError) as exc:
+        QueryEntriesInput(view="entries_v", group_by=["mid"])
+    assert "mid" in str(exc.value)
+
+
+@pytest.mark.unit
+def test_line_grain_sum_on_entries_v_rejected() -> None:
+    """sum(entered_value) references the line-grain column; on entries_v
+    use sum(total_entered_value) instead."""
+    with pytest.raises(ValidationError) as exc:
+        QueryEntriesInput(
+            view="entries_v",
+            aggregations=["sum(entered_value)"],
+        )
+    assert "sum(entered_value)" in str(exc.value)
+    assert "total_entered_value" in str(exc.value)  # suggestion in error msg
+
+
+@pytest.mark.unit
+def test_entries_v_aggregate_on_line_grain_view_rejected() -> None:
+    """sum(total_entered_value) is an entries_v rollup; on entry_lines_v
+    use sum(entered_value)."""
+    with pytest.raises(ValidationError) as exc:
+        QueryEntriesInput(
+            view="entry_lines_v",
+            aggregations=["sum(total_entered_value)"],
+        )
+    assert "sum(total_entered_value)" in str(exc.value)
+    assert "entries_v" in str(exc.value)
+
+
+@pytest.mark.unit
+def test_compatible_combos_pass_through() -> None:
+    """Sanity: each ground-truth combo (Q1, Q2, Q3, Q11) parses cleanly."""
+    # Q1: entries_v + customer + period filter + default count
+    QueryEntriesInput(
+        view="entries_v",
+        filters=EntryFilters(customer_code="PCA", release_year_month="2025-01"),
+    )
+    # Q2: entries_v + sum(total_entered_value)
+    QueryEntriesInput(
+        view="entries_v",
+        filters=EntryFilters(customer_code="SAG", release_year_quarter="2025-Q1"),
+        aggregations=["sum(total_entered_value)"],
+    )
+    # Q3: entries_v + group by port columns + count + order by
+    QueryEntriesInput(
+        view="entries_v",
+        group_by=["port_of_entry_code", "port_of_entry_name"],
+        aggregations=["count_distinct_entries"],
+        order_by=[("count_distinct_entries", "desc")],
+        limit=1,
+    )
+    # Q11 (line side): entry_lines_v + customer + period + count_lines
+    QueryEntriesInput(
+        view="entry_lines_v",
+        filters=EntryFilters(customer_code="MHF", release_year_month="2024-11"),
+        aggregations=["count_lines"],
+    )
+
+
+@pytest.mark.unit
+def test_shared_columns_work_on_both_views() -> None:
+    """port_of_entry_code / customer_code / release_year_month / etc. exist
+    on both views and must pass through regardless of selected view."""
+    for view in ("entries_v", "entry_lines_v"):
+        QueryEntriesInput(
+            view=view,  # type: ignore[arg-type]
+            filters=EntryFilters(
+                customer_code="MHF",
+                port_of_entry_code="2704",
+                release_year_month="2025-01",
+            ),
+            group_by=["customer_code"],
+        )
+
+
+@pytest.mark.unit
+def test_count_aggregations_work_on_both_views() -> None:
+    """count_distinct_entries and count_lines reference entry_number (shared)
+    and don't trip the view-compat check on either view."""
+    for view in ("entries_v", "entry_lines_v"):
+        QueryEntriesInput(
+            view=view,  # type: ignore[arg-type]
+            aggregations=["count_distinct_entries", "count_lines"],
+        )

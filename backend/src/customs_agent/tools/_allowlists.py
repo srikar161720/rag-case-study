@@ -26,6 +26,22 @@ The builder in ``query_entries.py`` parses each aggregation string,
 asserts membership in :data:`ALLOWED_AGGREGATIONS`, then emits the
 matching SQL fragment. No regex hacks, no string-format-style
 interpolation of user values.
+
+View column inventories (PR #5 Copilot Comment 4 follow-up):
+
+:data:`ENTRIES_V_COLUMNS` and :data:`ENTRY_LINES_V_COLUMNS` mirror the
+actual columns produced by ``backend/src/customs_agent/data/views.py``
+and are consumed by the ``QueryEntriesInput`` view-compatibility
+validator (Fork 21 — rejects e.g. ``view="entries_v"`` with
+``country_of_origin_code`` filter, since that column is line-grain
+only). The companion :data:`ENTRIES_V_ONLY` / :data:`ENTRY_LINES_V_ONLY`
+set differences make the per-view checks cheap.
+
+**These must stay in sync with ``views.py``.** The drift test in
+``tests/unit/tools/test_allowlists.py`` runs ``DESCRIBE entries_v`` /
+``DESCRIBE entry_lines_v`` on a live in-memory DuckDB and asserts the
+constants match — failure means views.py grew or lost a column and
+this file needs an update.
 """
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -110,3 +126,97 @@ ALLOWED_AGGREGATIONS: frozenset[str] = frozenset({
 ALLOWED_ORDER_BY: frozenset[str] = (
     ALLOWED_GROUP_BY | ALLOWED_AGGREGATIONS
 )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# View column inventories (PR #5 Copilot Comment 4 follow-up).
+# Must stay in sync with views.py; the drift test in
+# tests/unit/tools/test_allowlists.py fails loudly on mismatch.
+# ─────────────────────────────────────────────────────────────────────────────
+
+ENTRIES_V_COLUMNS: frozenset[str] = frozenset({
+    "carrier",
+    "customer_code",
+    "customer_name",
+    "distinct_origin_count",
+    "entry_filed_date",
+    "entry_number",
+    "entry_type",
+    "entry_type_code",
+    "hold_reason",
+    "is_shell",
+    "line_count",
+    "on_hold",
+    "origin_country_codes",
+    "pay_type",
+    "port_of_entry",
+    "port_of_entry_code",
+    "port_of_entry_name",
+    "release_date",
+    "release_month",
+    "release_quarter",
+    "release_year_month",
+    "release_year_quarter",
+    "summary_date",
+    "total_duty_taxes_fees_correct",
+    "total_duty_taxes_fees_line_sum",
+    "total_entered_value",
+    "total_hmf",
+    "total_ieepa_duty",
+    "total_mpf_capped",
+    "total_mpf_raw",
+    "total_primary_duty",
+    "total_section_301_duty",
+})
+
+ENTRY_LINES_V_COLUMNS: frozenset[str] = frozenset({
+    "bill_of_lading",
+    "broker_reference",
+    "carrier",
+    "container_number",
+    "country_of_origin",
+    "country_of_origin_code",
+    "customer_code",
+    "customer_name",
+    "duty_rate_pct",
+    "entered_value",
+    "entry_filed_date",
+    "entry_number",
+    "entry_type",
+    "entry_type_code",
+    "hmf",
+    "hold_reason",
+    "hts_code",
+    "hts_description",
+    "ieepa_code",
+    "ieepa_duty",
+    "invoice_tariff_line",
+    "is_china_origin",
+    "is_shell",
+    "mid",
+    "mode_of_transport",
+    "mpf",
+    "on_hold",
+    "pay_type",
+    "port_of_entry",
+    "port_of_entry_code",
+    "port_of_entry_name",
+    "port_of_lading",
+    "primary_duty",
+    "release_date",
+    "release_month",
+    "release_quarter",
+    "release_year_month",
+    "release_year_quarter",
+    "section_301_code",
+    "section_301_duty",
+    "summary_date",
+    "total_duty_taxes_fees",
+    "units",
+    "uom",
+})
+
+# Pre-computed differences (read once at module import) — the validator
+# uses these for membership checks rather than re-deriving on each call.
+ENTRIES_V_ONLY: frozenset[str] = ENTRIES_V_COLUMNS - ENTRY_LINES_V_COLUMNS
+ENTRY_LINES_V_ONLY: frozenset[str] = ENTRY_LINES_V_COLUMNS - ENTRIES_V_COLUMNS
