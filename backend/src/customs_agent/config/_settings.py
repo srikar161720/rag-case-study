@@ -1,20 +1,25 @@
-"""Backend settings — single Pydantic-settings BaseSettings model.
+"""Pydantic-settings ``Settings`` class — the source of truth for all
+env-bound configuration.
 
-Configuration is loaded from environment variables (case-insensitive) with a
-fallback to a ``.env`` file at the ``backend/`` root. The ``.env`` file itself
-is gitignored; the committed ``backend/.env.example`` contract documents
-every variable in this class.
+Configuration is loaded from environment variables (case-insensitive)
+with a fallback to a ``.env`` file at the ``backend/`` root. The
+``.env`` file itself is gitignored; the committed
+``backend/.env.example`` contract documents every variable in this
+class.
 
 The four logical config groupings referenced in PROGRESS.md
-(``AgentConfig`` / ``LLMConfig`` / ``RateLimitConfig`` / ``SafetyConfig``) are
-represented as sections inside this single class, not as separate models —
-this matches the locked spec in ``context/05-api-and-backend.md`` and keeps
-env-var binding flat and predictable.
+(``AgentConfig`` / ``LLMConfig`` / ``RateLimitConfig`` /
+``SafetyConfig``) are represented as sections inside this single
+class, not as separate models — this matches the locked spec in
+``context/05-api-and-backend.md`` and keeps env-var binding flat and
+predictable.
 
-Module-level ``settings = Settings()`` singleton is instantiated at the
-bottom of this file (``feat/fastapi-backend``). The first import of this
-module raises ``ValidationError`` if the three required env vars
-(``ANTHROPIC_API_KEY``, ``BACKEND_API_KEY``, ``ALLOWED_ORIGINS``) are absent.
+The module-level ``settings = Settings()`` singleton lives in this
+package's :mod:`__init__.py` so importers can write
+``from customs_agent.config import settings`` without binding to the
+private module name. The first import raises ``pydantic.ValidationError``
+if the three required env vars (``ANTHROPIC_API_KEY``,
+``BACKEND_API_KEY``, ``ALLOWED_ORIGINS``) are absent.
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -122,11 +127,3 @@ class Settings(BaseSettings):
         entries = [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
         patterns = [o for o in entries if o.startswith("^") and o.endswith("$")]
         return "|".join(f"({p})" for p in patterns) if patterns else None
-
-
-# Module-level singleton. Constructed at import time; raises pydantic
-# ``ValidationError`` immediately on a missing required env var so the
-# app fails loudly at boot rather than 500-ing later under traffic.
-# mypy strict can't see that pydantic-settings populates required fields
-# from the environment — the call-arg ignore is the canonical workaround.
-settings = Settings()  # type: ignore[call-arg]
