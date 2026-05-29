@@ -87,7 +87,7 @@ async def ready(request: Request, response: Response) -> dict[str, Any]:
         "model": settings.llm_model,
         "embedding_model": manifest.get("embedding_model"),
         "chunk_count": manifest.get("chunk_count"),
-        "built_at": manifest.get("indexed_at_utc"),
+        "built_at": manifest.get("built_at"),
         "agent_max_iterations": settings.agent_max_iterations,
         "temperature": settings.llm_temperature,
     }
