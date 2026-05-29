@@ -33,6 +33,7 @@ The ``/chat/stream`` SSE variant (Fork 29) lands on ``feat/streaming``;
 the streaming handler will register against the same ``chat`` router.
 """
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -85,7 +86,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     validate_loaded_data(con)
     app.state.db = con
 
-    # 2. RAG retriever — load chunks + ChromaDB collection + BM25
+    # 2. RAG retriever — load chunks + ChromaDB collection + BM25.
+    # pydantic-settings reads ``.env`` into ``Settings`` but does NOT
+    # export to ``os.environ``. chromadb's ``OpenAIEmbeddingFunction``
+    # reads ``OPENAI_API_KEY`` from ``os.environ`` directly at
+    # construction (and raises if absent), so we copy the value across
+    # here. In production (Fly) the env var is set by ``fly secrets``
+    # and this assignment is a no-op (setdefault respects existing
+    # values).
+    if settings.openai_api_key:
+        os.environ.setdefault("OPENAI_API_KEY", settings.openai_api_key)
     chunks = parse_chunks()
     retriever = HybridRetriever.from_artifacts(
         chunks=chunks,
