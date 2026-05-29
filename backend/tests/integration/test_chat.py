@@ -196,3 +196,70 @@ def test_chat_refusal_marker_surfaces_in_response(
     assert body["refusal_category"] == "off_domain"
     # The marker itself is stripped from the public answer.
     assert "<!-- refusal" not in body["answer"]
+
+
+@pytest.mark.integration
+def test_app_state_loop_settings_mirrors_settings(client: TestClient) -> None:
+    """``app.state.loop_settings`` must be built from the live
+    ``Settings`` values at lifespan, not the hardcoded
+    ``DEFAULT_LOOP_SETTINGS`` fallback. A future env override of
+    ``LLM_MODEL`` / ``AGENT_MAX_ITERATIONS`` / etc. flows through this
+    object to ``run_agent``."""
+    from customs_agent.config import settings
+
+    ls = client.app.state.loop_settings
+    assert ls.model == settings.llm_model
+    assert ls.temperature == settings.llm_temperature
+    assert ls.max_iterations == settings.agent_max_iterations
+    assert ls.max_input_tokens == settings.agent_max_input_tokens_per_turn
+    assert ls.max_output_tokens == settings.agent_max_output_tokens_per_turn
+    assert ls.embedding_model == settings.llm_embedding_model
+
+
+@pytest.mark.integration
+def test_chat_handler_forwards_loop_settings_to_run_agent(
+    client: TestClient,
+    valid_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ``/chat`` handler must pass ``app.state.loop_settings`` as
+    the ``settings=`` kwarg to ``run_agent``. Without this, env-
+    overridden ``LLM_MODEL`` / ``AGENT_MAX_ITERATIONS`` etc. would
+    silently no-op against ``DEFAULT_LOOP_SETTINGS`` while ``/ready``
+    continues to advertise the env values — silent divergence.
+
+    Spies ``customs_agent.api.chat.run_agent`` to capture the kwargs;
+    asserts ``settings`` is the SAME object as ``app.state.loop_settings``
+    (identity, not equality) so a future refactor that swapped in a
+    fresh AgentLoopSettings() at each request would still fail this
+    test.
+    """
+    from customs_agent.agent.contracts import ChatResponse, ResponseMeta
+
+    captured_kwargs: dict[str, object] = {}
+
+    def spy(*args: object, **kwargs: object) -> ChatResponse:
+        captured_kwargs.update(kwargs)
+        return ChatResponse(
+            answer="spy",
+            meta=ResponseMeta(
+                request_id="test-id",
+                prompt_version="test",
+                model="test",
+                embedding_model="test",
+                temperature=0.0,
+                iterations_used=0,
+            ),
+        )
+
+    monkeypatch.setattr("customs_agent.api.chat.run_agent", spy)
+
+    response = client.post(
+        "/chat",
+        headers=valid_headers,
+        json={"messages": [{"role": "user", "content": "hi"}]},
+    )
+
+    assert response.status_code == 200
+    assert "settings" in captured_kwargs
+    assert captured_kwargs["settings"] is client.app.state.loop_settings

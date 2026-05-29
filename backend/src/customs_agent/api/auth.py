@@ -48,7 +48,14 @@ async def require_api_key(
             },
             headers={"WWW-Authenticate": 'ApiKey realm="customs-agent"'},
         )
-    if not compare_digest(x_api_key, settings.backend_api_key):
+    # Encode both args to UTF-8 bytes before ``compare_digest``.
+    # ``secrets.compare_digest`` accepts ASCII-only ``str`` OR bytes-likes —
+    # a non-ASCII ``str`` raises ``TypeError`` and would 500 the request
+    # instead of returning the documented 403. Bytes comparison preserves
+    # constant-time semantics and handles any header byte sequence.
+    if not compare_digest(
+        x_api_key.encode("utf-8"), settings.backend_api_key.encode("utf-8")
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={

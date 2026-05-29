@@ -46,6 +46,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from customs_agent.agent.bootstrap import build_agent_context
+from customs_agent.agent.loop import AgentLoopSettings
 from customs_agent.api import chat, health, starter_prompts
 from customs_agent.api._rate_limit import custom_rate_limit_handler, limiter
 from customs_agent.api._request_id import RequestIdMiddleware
@@ -110,6 +111,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     client = Anthropic(api_key=settings.anthropic_api_key)
     app.state.agent_ctx = build_agent_context(con, retriever, client)
 
+    # 4. AgentLoopSettings built from the live Settings values so
+    # env-overridden LLM_MODEL / AGENT_MAX_* etc. flow through to
+    # run_agent instead of silently no-oping against the hardcoded
+    # DEFAULT_LOOP_SETTINGS. The /chat handler reads this off
+    # app.state and forwards as the ``settings=`` kwarg.
+    app.state.loop_settings = AgentLoopSettings(
+        model=settings.llm_model,
+        temperature=settings.llm_temperature,
+        max_iterations=settings.agent_max_iterations,
+        max_input_tokens=settings.agent_max_input_tokens_per_turn,
+        max_output_tokens=settings.agent_max_output_tokens_per_turn,
+        embedding_model=settings.llm_embedding_model,
+    )
+
     try:
         yield
     finally:
@@ -135,16 +150,35 @@ app = FastAPI(
 #
 # Ordering reasoning (full rationale in context/05-api-and-backend.md):
 # 1. SecurityHeadersMiddleware outermost — its headers must stamp every
-#    response, including 401/403/429/5xx errors from inner layers.
+#    response, including 401/403/429/5xx errors from inner layers AND
+#    short-circuit responses (CORS preflight, slowapi 429) that never
+#    reach the route handler.
 # 2. CORSMiddleware next so preflight OPTIONS returns BEFORE rate limit
 #    fires (browsers preflighting shouldn't trip the bucket).
 # 3. SlowAPIMiddleware after CORS so rejected-origin requests don't
 #    count against the bucket.
 # 4. RequestIdMiddleware innermost so request.state.request_id is set
 #    BEFORE any route or dependency runs.
+#
+# Starlette's ``app.add_middleware()`` does ``user_middleware.insert(0, ...)``
+# — every call PREPENDS. Net effect: the LAST ``add_middleware`` call
+# wraps OUTERMOST and the FIRST call wraps INNERMOST among user
+# middlewares. The add order below is therefore the REVERSE of the
+# request execution order above: RequestId added first → innermost;
+# SEM added last → outermost. The middleware-order assertion in
+# tests/integration/test_security_headers.py guards against accidental
+# regression here.
 
-app.add_middleware(SecurityHeadersMiddleware)
+# slowapi state setup must happen BEFORE ``add_middleware(SlowAPIMiddleware)``:
+# the middleware reads ``app.state.limiter`` at request time, and the
+# exception handler must be registered before any rate-limited response
+# can land. These three lines together are slowapi's required wiring.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)  # type: ignore[arg-type]
 
+# Middleware adds, in INNER → OUTER order (Starlette prepends):
+app.add_middleware(RequestIdMiddleware)
+app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_exact_origins,
@@ -154,15 +188,7 @@ app.add_middleware(
     allow_headers=["Content-Type", "X-API-Key"],
     max_age=3600,
 )
-
-# slowapi wires in three pieces: limiter on app.state for the
-# decorators to find, an exception handler for the typed 429 response,
-# and the middleware itself for enforcement.
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)  # type: ignore[arg-type]
-app.add_middleware(SlowAPIMiddleware)
-
-app.add_middleware(RequestIdMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Routes

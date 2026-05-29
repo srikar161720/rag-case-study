@@ -15,6 +15,8 @@ session-scoped TestClient state hermetic for the other
 integration tests.
 """
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -145,3 +147,46 @@ def test_ready_returns_503_when_duckdb_query_raises(
     assert body["status"] == "degraded"
     assert body["checks"]["duckdb"]["ok"] is False
     assert "simulated duckdb failure" in body["checks"]["duckdb"]["error"]
+
+
+@pytest.mark.integration
+def test_ready_returns_503_when_bm25_is_none(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``retriever._bm25 is None`` (incomplete boot, future regression)
+    must flip ``overall_ok=False`` → 503, not silently report 200 with
+    a quietly-broken BM25 subsystem. Mirrors the chroma block's
+    ``chunk_count == 0 → degraded`` pattern.
+    """
+    monkeypatch.setattr(client.app.state.retriever, "_bm25", None)
+
+    response = client.get("/ready")
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "degraded"
+    assert body["checks"]["bm25"]["ok"] is False
+
+
+@pytest.mark.integration
+def test_ready_returns_503_when_manifest_malformed(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A present-but-corrupt manifest must degrade ``/ready`` to 503,
+    not 500. Without the ``try/except`` around the manifest
+    read+parse, ``json.JSONDecodeError`` would propagate out of the
+    handler as an unhandled 500 — breaking the readiness contract
+    (``503 on ANY subsystem trouble``) that the chroma + duckdb
+    blocks already honor.
+    """
+    bad_path = tmp_path / "manifest.json"
+    bad_path.write_text("{this is not json")
+    monkeypatch.setattr("customs_agent.api.health.MANIFEST_PATH", bad_path)
+
+    response = client.get("/ready")
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "degraded"
+    assert body["checks"]["manifest"]["ok"] is False
+    assert "error" in body["checks"]["manifest"]
