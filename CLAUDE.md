@@ -48,6 +48,15 @@ These are non-negotiable across every session.
   `PROGRESS.md`, and `context/*.md` updates are administrative and
   commit directly to `main` (no branch, no PR). All code and config
   changes still follow the branch + PR workflow.
+- **Timing for tracking-doc edits**: edits to `CLAUDE.md`,
+  `PROGRESS.md`, and any file under `context/` happen at the END of a
+  session only, when the user explicitly asks for the admin sweep.
+  Individual sessions stay focused on code work; the closing admin
+  commit batches all tracking-doc updates so the session boundary is
+  clean. If a code chunk would otherwise diverge from a `context/*.md`
+  spec snippet (e.g., the middleware-order correction from PR #9
+  Copilot Comment 1), call out the spec drift in the chunk-completion
+  message and DEFER the spec edit to the end-of-session sweep.
 - **Branch naming**: `<type>/<short-kebab-name>` where `<type>` matches the
   dominant Conventional Commits type for the branch
   (e.g., `feat/data-layer`, `chore/dockerfile-fly`, `docs/final-polish`).
@@ -69,8 +78,13 @@ Conventional Commits: `<type>(<scope>): <subject>`.
 - **Scopes**: `data`, `rag`, `tools`, `agent`, `prompts`, `api`, `web`,
   `infra`, `ci`, `obs`, `security`, `eval`
 
-Body (when warranted) explains the **why**, not the **what** (the diff is
-the what). Wrap body lines at 72 chars.
+Body (when warranted) explains the **why**, not the **what** (the diff
+is the what). Write paragraphs and bullets as single unwrapped lines —
+the editor / git client handles soft wrapping. Same content renders
+identically in GitHub PRs but stays readable in narrow terminals when
+wrapped by the client rather than baked into the diff. (Previous
+sessions wrapped at 72 chars; the no-wrap convention is locked from
+2026-05-29 onward.)
 
 **Forbidden in commit messages and PR bodies**: build-phase or "Day N"
 references. `PROGRESS.md` is the only place where Day-N labels live;
@@ -203,14 +217,26 @@ rag-case-study/
 │   ├── data/                       ← synthetic CSV dataset (moved from root)
 │   ├── knowledge/                  ← 4 knowledge text files (moved from root)
 │   ├── src/customs_agent/          ← src-layout package
+│   │   ├── main.py                 ← FastAPI app + lifespan + middleware stack (PR #9)
+│   │   ├── config/                 ← package: __init__.py (singleton + MANIFEST_PATH) + _settings.py + starter_prompts.py
+│   │   ├── api/                    ← auth.py + _rate_limit.py + _security_headers.py + _request_id.py + chat.py + health.py + starter_prompts.py
+│   │   ├── agent/                  ← loop + bootstrap + refusal + validator + history + contracts + prompt + _dispatch
+│   │   ├── tools/                  ← 5 typed tools + _filters + _allowlists + _shared
+│   │   ├── rag/                    ← chunker + retriever + always_on + _tokenize
+│   │   └── data/                   ← load + views + validation
 │   ├── prompts/                    ← system-prompt section files (Fork 27)
 │   ├── scripts/
 │   │   ├── build_index.py          ← build-time RAG indexing (Fork 17)
 │   │   ├── export_openapi.py       ← OpenAPI snapshot generator (G3)
 │   │   └── generate_evaluation_md.py  ← EVALUATION.md regenerator (G5)
 │   ├── tests/
+│   │   ├── conftest.py             ← root env shim (4 setdefault: ANTHROPIC_API_KEY, BACKEND_API_KEY, ALLOWED_ORIGINS, OPENAI_API_KEY, RATELIMIT_ENABLED=false)
+│   │   ├── _fakes.py               ← shared Anthropic SDK fakes (cross-conftest reuse for unit + integration + eval)
 │   │   ├── ground_truth.py + ground_truth.json    ← canonical answer key (Fork 43)
-│   │   └── unit/, integration/, eval/             ← 3-layer pyramid (Fork 45)
+│   │   ├── unit/                   ← api/ + data/ + agent/ + tools/ + rag/ subdirs (per-subdir conftest)
+│   │   ├── integration/            ← FastAPI app end-to-end via TestClient (PR #9)
+│   │   └── eval/                   ← real-LLM eval (Day 4)
+│   ├── chroma_db/ + bm25.pkl + manifest.json  ← `make build-index` artifacts (gitignored; Docker bakes; /ready reads manifest.json)
 │   ├── pyproject.toml + uv.lock    ← uv-managed Python deps
 │   ├── Dockerfile + .dockerignore  ← multi-stage build (Fork 41)
 │   ├── fly.toml                    ← Fly.io deploy config (Forks 36, 37)
@@ -358,6 +384,79 @@ forgotten. Every session must remember them.
     placeholder is never sent. Do not hardcode the column list in the
     source — and never call the tool registration path without going
     through the bootstrap helper.
+14. **Starlette `add_middleware` PREPENDS** — the LAST call wraps
+    OUTERMOST (PR #9 Copilot Comment 1, fixed before merge).
+    `Starlette.add_middleware()` does
+    `self.user_middleware.insert(0, ...)` at
+    `starlette/applications.py:101`. The intuitive read ("first added
+    = outermost") is backwards. In `main.py`, add middlewares in
+    INNER → OUTER order: `RequestIdMiddleware` first, then
+    `SlowAPIMiddleware`, then `CORSMiddleware`, then
+    `SecurityHeadersMiddleware` LAST so SEM ends up outermost. The
+    misorder is silent — slowapi 429 responses + CORS preflight 200s
+    short-circuit before reaching inner middleware, so SEM-as-inner
+    means those responses ship without the 4 defensive headers. The
+    `test_main_app_user_middleware_outermost_is_security_headers`
+    integration test in
+    `backend/tests/integration/test_security_headers.py` is the
+    canary; any future refactor that re-introduces the bug fails here
+    first.
+15. **`AgentLoopSettings` must be built from `Settings` at lifespan**
+    (PR #9 Copilot Comment 2, fixed before merge). The agent loop
+    signature is `run_agent(ctx, user_message, history, request_id, *,
+    settings=DEFAULT_LOOP_SETTINGS)`. Omitting the `settings=` kwarg
+    makes the loop use HARDCODED defaults regardless of env
+    overrides — `LLM_MODEL` / `AGENT_MAX_ITERATIONS` etc. silently
+    no-op while `/ready` continues to advertise the env values
+    (silent divergence). `main.py:lifespan` constructs an
+    `AgentLoopSettings(model=settings.llm_model, ...)` from the live
+    Settings, stashes on `app.state.loop_settings`, and
+    `api/chat.py` forwards as `settings=app.state.loop_settings` to
+    `run_agent`. The `test_chat_handler_forwards_loop_settings_to_run_agent`
+    integration test spies the kwarg via monkeypatch and asserts
+    object identity (not equality) so the canary survives a future
+    refactor that constructs a fresh AgentLoopSettings per request.
+16. **pydantic-settings does NOT auto-export to `os.environ`**
+    (chunk 3c fix, surfaced during local smoke test). Reading `.env`
+    populates the `Settings` model but leaves `os.environ` untouched.
+    chromadb's `OpenAIEmbeddingFunction` reads `OPENAI_API_KEY` from
+    `os.environ` directly at construction (chromadb 0.5+ raises
+    `ValueError("CHROMA_OPENAI_API_KEY environment variable is not
+    set")` on empty string), so a `.env`-only `OPENAI_API_KEY` makes
+    `uvicorn` 500 at lifespan even when `Settings.openai_api_key` is
+    correct. `main.py:lifespan` does
+    `os.environ.setdefault("OPENAI_API_KEY", settings.openai_api_key)`
+    BEFORE constructing the retriever; `setdefault` respects existing
+    values so production (Fly secrets sets env directly) is
+    unaffected. Same pattern applies to any other third-party library
+    that reads `os.environ` at construction without taking the key as
+    a parameter.
+17. **`secrets.compare_digest` requires ASCII-only `str` OR bytes**
+    (PR #9 Copilot Comment 5, fixed before merge). Passing a
+    non-ASCII `str` (e.g., `X-API-Key: tëst-key` containing umlauts)
+    raises `TypeError` and propagates as a 500 instead of the
+    documented 403 `invalid_api_key` response. `api/auth.py` encodes
+    both args to UTF-8 bytes:
+    `compare_digest(x_api_key.encode("utf-8"),
+    settings.backend_api_key.encode("utf-8"))`. Bytes comparison
+    preserves the constant-time semantics that are the whole point of
+    `compare_digest` and trivially handles any header byte sequence.
+    Never replace with `==` or remove the byte encoding.
+18. **slowapi 0.1.9 reads `RATELIMIT_ENABLED` env var and silently
+    OVERRIDES the constructor `enabled=` flag** at
+    `slowapi/extension.py:234`:
+    `self.enabled = self.get_app_config(C.ENABLED, self.enabled)`.
+    The test suite's `tests/conftest.py` sets
+    `RATELIMIT_ENABLED=false` for the whole suite (so the global
+    limiter at `customs_agent.api._rate_limit.limiter` is no-op and
+    most integration tests don't trip rate limits). Rate-limit
+    integration tests need to construct their own `Limiter` with
+    `enabled=True` — the fixture in
+    `tests/integration/test_rate_limit.py:rate_limit_client` (and
+    `headers_on_429_client` in `tests/integration/test_security_headers.py`)
+    toggles `os.environ["RATELIMIT_ENABLED"] = "true"` around
+    `Limiter()` construction and restores the prior value on
+    teardown so other tests aren't polluted.
 
 ---
 

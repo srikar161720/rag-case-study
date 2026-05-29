@@ -87,16 +87,33 @@ app = FastAPI(
     # leaving them enabled gives reviewers a free API doc surface.
 )
 
-# Middleware order matters — outer middleware runs first on request, last on response.
-# Stack order (top-down = outer-most to inner-most):
+# Middleware execution order on REQUEST (outer-to-inner):
 #   1. SecurityHeadersMiddleware  ← adds defensive headers to every response
 #   2. CORSMiddleware             ← origin allowlist (Fork 38)
 #   3. SlowAPIMiddleware          ← rate limit enforcement (Fork 47)
 #   4. request_logging_middleware ← request_id binding + stdout log lines (Fork 52)
 #   5. (routes + Depends(require_api_key) for protected endpoints)
+#
+# CRITICAL: Starlette's app.add_middleware() does
+# `self.user_middleware.insert(0, ...)` — every call PREPENDS. Net
+# effect: the LAST add_middleware call wraps OUTERMOST and the FIRST
+# call wraps INNERMOST among user middlewares. The add order below is
+# therefore the REVERSE of the request execution order above:
+# request_logging added first → innermost; SecurityHeadersMiddleware
+# added last → outermost. A future refactor that re-adds middlewares
+# in the "intuitive" outer-first order will silently re-introduce the
+# PR #9 Copilot Comment 1 bug (429 responses + CORS preflight 200s
+# ship without security headers). CLAUDE.md Critical Gotcha #14 +
+# the integration test at
+# `backend/tests/integration/test_security_headers.py::test_main_app_user_middleware_outermost_is_security_headers`
+# are the canary.
 
-app.add_middleware(SecurityHeadersMiddleware)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
 
+# Middleware adds, in INNER → OUTER order (Starlette prepends):
+app.middleware("http")(request_logging_middleware)
+app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_exact_origins,
@@ -106,12 +123,7 @@ app.add_middleware(
     allow_headers=["Content-Type", "X-API-Key"],
     max_age=3600,
 )
-
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
-app.add_middleware(SlowAPIMiddleware)
-
-app.middleware("http")(request_logging_middleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Routes
 app.include_router(chat.router)

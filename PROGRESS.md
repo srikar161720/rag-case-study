@@ -6,12 +6,12 @@ Phase checklist + session log for the Customs Analytics Agent build.
 
 ## Current Status
 
-- **Phase**: Day 2 nearly complete — agent runtime layer shipped across 4 merged PRs (`feat/rag-pipeline` → `feat/prompts-and-tools` → `chore/copilot-review-cleanup` → `feat/agent-loop`). Remaining Day 2 work is the `test/backend-units` branch, slimmed to data-layer unit-test coverage (tools tests + agent-primitive tests already shipped alongside their source modules on prior branches).
-- **Current branch**: `main` (clean; ready to start `test/backend-units`)
-- **Last PR merged**: `feat/agent-loop` (preceded by `chore/copilot-review-cleanup`, `feat/prompts-and-tools`, `feat/rag-pipeline`)
-- **Last session**: 2026-05-27 — Day 2 agent core (RAG + prompts + tools + agent loop, 4 branches)
-- **Days elapsed / remaining**: 2 / 5
-- **Blockers**: None. Next: `test/backend-units` for `tests/unit/data/{test_load,test_views,test_validation}.py`, then Day 3 begins with `feat/fastapi-backend`.
+- **Phase**: Day 3 complete — Day 2 closed with the data-layer unit suite on `test/backend-units` (41 tests across `test_load.py` / `test_views.py` / `test_validation.py`); Day 3 shipped the full FastAPI orchestration layer on `feat/fastapi-backend` (PR #9, 6 commits including 5 fixes addressing PR #9 Copilot review before merge). Backend test suite at **356 tests** (290 + 41 + 14 + 8 + 8 + 28 + 8 across the 7 chunks).
+- **Current branch**: `main` (clean; ready to start `chore/dockerfile-fly`)
+- **Last PR merged**: `feat/fastapi-backend` (PR #9 — preceded by `test/backend-units` PR #8 earlier in the same session)
+- **Last session**: 2026-05-29 — Day 2 close + Day 3 backend deploy (2 branches shipped + Copilot review fixes)
+- **Days elapsed / remaining**: 3 / 4
+- **Blockers**: None. Next: `chore/dockerfile-fly` for the multi-stage Dockerfile (`uv` + BuildKit secrets per Fork 41) + `fly.toml` (iad region per Forks 36/37) + first `flyctl launch` + `fly secrets set` for all backend env vars + smoke-test `/health` and `/ready` on the deployed URL.
 
 ---
 
@@ -91,22 +91,23 @@ branch (and therefore one PR). The branch list below maps 1:1 to the planned
 #### Branch: `test/backend-units`
 
 - [x] Unit tests for tools: per-file in `backend/tests/unit/tools/` _(already shipped on prior branches alongside source modules — `test_filters.py`, `test_shared.py`, `test_allowlists.py`, plus one test file per of the 5 tools)._
-- [ ] Unit tests for data layer: `tests/unit/data/test_load.py`, `test_views.py`, `test_validation.py` _(the only remaining work for this branch)._
+- [x] Unit tests for data layer: `tests/unit/data/test_load.py` (12) + `test_views.py` (15) + `test_validation.py` (14) _(shipped on `test/backend-units` PR #8 as one chunk commit — 41 tests total. Two-fixture conftest pattern: session-scoped `duckdb_con` for read-only tests, function-scoped `fresh_duckdb_con` for mutation-bearing drift tests. Validator drift tests use `pytest.raises(AssertionError, match=…)` anchored on specific error strings so each assertion's grammar is pinned. MPF floor cap exercised via synthetic INSERT since the real dataset has zero entries below $31.67. Backend suite grew 249 → 290.)_
 - [x] Unit tests for agent primitives: `test_refusal_classifier.py`, `test_marker_validator.py` _(shipped on `feat/agent-loop` as `tests/unit/agent/test_refusal.py` + `test_validator.py`, plus `test_history.py`, `test_contracts.py`, `test_bootstrap.py`, `test_dispatch.py`, `test_loop.py`)._
 
 ### Day 3 — Deploy + MVP
 
 #### Branch: `feat/fastapi-backend`
 
-- [ ] `backend/src/customs_agent/main.py` — FastAPI app with middleware stack
-- [ ] `backend/src/customs_agent/api/auth.py` — `require_api_key` with `compare_digest` (Fork 48)
-- [ ] `backend/src/customs_agent/api/_rate_limit.py` — slowapi composite `(key, IP)` bucket (Fork 47)
-- [ ] `backend/src/customs_agent/api/_security_headers.py` — middleware (Fork 51)
-- [ ] CORS allowlist via env var `ALLOWED_ORIGINS` (Fork 38)
-- [ ] `backend/src/customs_agent/api/health.py` — `/health` + `/ready` with manifest (Fork 40)
-- [ ] `backend/src/customs_agent/api/chat.py` — POST `/chat` non-streaming endpoint
-- [ ] `backend/src/customs_agent/api/starter_prompts.py` — `/api/starter-prompts` endpoint (Fork 30 source)
-- [ ] `backend/config/starter_prompts.py` — 6 chip definitions (also feeds Fork 25 refusal suggestions)
+- [x] `backend/src/customs_agent/main.py` — FastAPI app + lifespan (data → views → validate → retriever → AgentContext → loop_settings) + middleware stack
+- [x] `backend/src/customs_agent/api/auth.py` — `require_api_key` with `compare_digest` (Fork 48); UTF-8 bytes encoding fix for non-ASCII headers landed in the Copilot-review chunk
+- [x] `backend/src/customs_agent/api/_rate_limit.py` — slowapi composite `(key[:8], IP)` bucket (Fork 47); custom 429 handler emitting structured JSON + `Retry-After` header
+- [x] `backend/src/customs_agent/api/_security_headers.py` — middleware (Fork 51); applies 4 defensive headers on every response including 4xx/5xx + 429 + CORS preflight (the latter two via the middleware-order fix on the Copilot-review chunk)
+- [x] CORS allowlist via env var `ALLOWED_ORIGINS` (Fork 38)
+- [x] `backend/src/customs_agent/api/health.py` — `/health` + `/ready` with manifest (Fork 40); manifest read wrapped in try/except + BM25 None flips overall_ok on the Copilot-review chunk
+- [x] `backend/src/customs_agent/api/chat.py` — POST `/chat` non-streaming endpoint; forwards `app.state.loop_settings` as `settings=` kwarg to `run_agent` on the Copilot-review chunk
+- [x] `backend/src/customs_agent/api/starter_prompts.py` — `/api/starter-prompts` endpoint (Fork 30 source)
+- [x] `backend/src/customs_agent/config/starter_prompts.py` — 6 chip definitions (also feeds Fork 25 refusal suggestions) _(original PROGRESS.md path `backend/config/starter_prompts.py` was a typo — actual landing path is inside the `customs_agent.config` package per the spec import at `context/05-api-and-backend.md:354`, with `config.py` → `config/` package conversion as part of chunk 2)_
+- [x] **Drive-by additions (not on original checklist)**: `backend/src/customs_agent/api/_request_id.py` (interim middleware setting `request.state.request_id = str(uuid.uuid4())` — full structured-logging middleware lands on `feat/observability-base`); `backend/tests/conftest.py` (root env shim for 4 env vars); `backend/tests/_fakes.py` (extracted Anthropic SDK fakes — `FakeAnthropicClient` + 5 supporting dataclasses — for cross-conftest reuse by integration + future eval suite); `backend/tests/integration/` test suite (36 tests across `test_health`, `test_starter_prompts`, `test_auth`, `test_rate_limit`, `test_security_headers`, `test_cors`, `test_ready`, `test_chat`); `backend/tests/unit/api/` test suite (22 tests across `test_auth`, `test_rate_limit`, `test_security_headers`, `test_starter_prompts_config`).
 
 #### Branch: `chore/dockerfile-fly`
 
@@ -301,6 +302,25 @@ branch (and therefore one PR). The branch list below maps 1:1 to the planned
 - **Decisions / surprises**: <only if non-routine — design changes, scope shifts, blockers, dep surprises>
 - **Next session**: <1 line — next branch or checklist item to start>
 ```
+
+---
+
+### 2026-05-29 — Day 2 close + Day 3 backend deploy (2 branches shipped, 7 chunk commits, PR #9 Copilot review fixes)
+
+- **Branch(es) touched**: `test/backend-units`, `feat/fastapi-backend`, `main` (admin sweep).
+- **PRs**: merged 2 — `test/backend-units` PR #8 (single chunk; 41 data-layer tests closing Day 2); `feat/fastapi-backend` PR #9 (6 chunks: 3 cross-cutting middleware + config package + cheap endpoints, app + chat router + smoke integration, deep integration suite, OPENAI_API_KEY lifespan fix, Copilot review fixes).
+- **Progress**: Backend suite grew 249 → 290 → 304 → 312 → 320 → 348 → 356 across the 7 chunks. Day 2 closed with data-layer unit tests (12 + 15 + 14 across `test_load.py` / `test_views.py` / `test_validation.py`) and the two-fixture conftest pattern (session `duckdb_con` + function `fresh_duckdb_con`). Day 3 shipped the full FastAPI orchestration layer: `main.py` lifespan boot (data → views → validate → retriever → AgentContext → loop_settings) + 4 middleware (SecurityHeaders → CORS → slowapi → RequestId, in inner-to-outer add order per the Starlette prepend semantics fixed before PR merge) + 5 endpoints (`/health`, `/ready`, `POST /chat`, `GET /api/starter-prompts`, plus FastAPI auto-generated `/docs` + `/openapi.json`). Config package conversion (`config.py` → `config/__init__.py` + `_settings.py` + `starter_prompts.py`). Test fakes extraction to `tests/_fakes.py` for cross-conftest reuse.
+- **Decisions / surprises**:
+  - **Commit message format change** — switched from "wrap body at 72 chars" to "single-line paragraphs/bullets, no hard wrap." Renders identically in GitHub PRs but stays readable in narrow terminals when wrapped by the client rather than baked into the diff. CLAUDE.md "Commit Message Format" updated this session.
+  - **Tracking-doc edit timing** — established workflow rule: edits to `CLAUDE.md`, `PROGRESS.md`, and any file under `context/` happen at END of a session only when the user explicitly asks for the admin sweep. Individual sessions stay focused on code work; the closing admin commit batches all tracking-doc updates. When a code chunk would otherwise diverge from a `context/*.md` spec snippet (as the PR #9 Copilot Comment 1 middleware-order fix did), call out the spec drift in the chunk-completion message and defer the spec edit to the end-of-session sweep. CLAUDE.md "Branches & PRs" updated this session.
+  - **PR #9 Copilot review — all 5 comments addressed before merge as a single chunk** (one-PR pattern, not the separate `chore/copilot-review-cleanup` branch precedent from PR #5). All 5 were legitimate bugs, none spec-intentional. Fix 1 — Starlette `add_middleware` PREPENDS so the LAST call wraps OUTERMOST; the chunk-3a [SEM, CORS, SlowAPI, RequestId] add order placed SEM INNERMOST instead of outermost, so 429 responses + CORS preflight 200s shipped without the 4 defensive headers. Fixed by reversing to [RequestId, SlowAPI, CORS, SEM]; 3 regression tests (direct order assertion, 429 mini-app, real-client preflight). Fix 2 — `run_agent` was called without `settings=` so the loop silently used `DEFAULT_LOOP_SETTINGS` while `/ready` advertised the live env values; env-overridden `LLM_MODEL` / `AGENT_MAX_ITERATIONS` etc. silently no-opped. Fixed by building `AgentLoopSettings` from `Settings` in lifespan, stashing on `app.state.loop_settings`, forwarding as `settings=` kwarg; 2 tests (state-mirror + spy on kwargs). Fix 3 — manifest read/parse wrapped in `try/except` so corrupt JSON degrades to 503 not 500. Fix 4 — `retriever._bm25 is None` now flips `overall_ok = False` mirroring the chroma block pattern. Fix 5 — `secrets.compare_digest` was passed bare `str` so non-ASCII `X-API-Key` headers raised `TypeError` → 500 instead of the documented 403; fixed by encoding both args to UTF-8 bytes. All 5 documented in CLAUDE.md Critical Gotchas #14-17 + #18 for the slowapi quirk surfaced while testing Fix 1.
+  - **pydantic-settings → `os.environ` gap** (chunk 3c, surfaced during local uvicorn smoke test) — pydantic-settings reads `.env` into the `Settings` model but does NOT export to `os.environ`. chromadb's `OpenAIEmbeddingFunction` reads `OPENAI_API_KEY` from `os.environ` directly at construction (chromadb 0.5+ raises `ValueError` on empty string), so local uvicorn 500'd at lifespan even though `Settings.openai_api_key` was populated. Test suite worked because `tests/conftest.py` sets the env var directly via `os.environ.setdefault`. Fix: `main.py:lifespan` does `os.environ.setdefault("OPENAI_API_KEY", settings.openai_api_key)` BEFORE constructing the retriever. Production Fly is unaffected (fly secrets set env directly). Captured in CLAUDE.md Critical Gotcha #16.
+  - **slowapi 0.1.9 `RATELIMIT_ENABLED` env override** (chunk 3b landmine, took an hour to diagnose) — slowapi's `Limiter` constructor calls `self.enabled = get_app_config(C.ENABLED, self.enabled)` at `extension.py:234` — reads the env var and silently OVERRIDES the constructor's explicit `enabled=True`. The chunk-3b `test_rate_limit.py:rate_limit_client` fixture had to toggle the env var around Limiter construction (and the new `headers_on_429_client` fixture in `test_security_headers.py` for Fix 1 too). Captured in CLAUDE.md Critical Gotcha #18.
+  - **Drive-by bug fixes during chunk-3b integration tests** (not Copilot-flagged): (1) `api/health.py` manifest field key was `indexed_at_utc` per a stale spec reference — actual field per `scripts/build_index.py` is `built_at`. Caught by `test_ready_manifest_includes_build_fields_when_local_manifest_present` reading the real `backend/manifest.json`. Fixed in chunk 3b alongside the other integration tests. (2) DuckDB connection attributes are READ-ONLY (CPython extension class), so `monkeypatch.setattr(con, "execute", boom)` raises `AttributeError`. Tests that simulate duckdb subsystem failure swap the whole `app.state.db` attribute with a `_RaisingConnection` stub instead. Documented in `test_ready.py` docstring; not a CLAUDE.md gotcha since it's test-only.
+  - **Config package conversion path resolution** (chunk 2) — original PROGRESS.md said `backend/config/starter_prompts.py` (outside the importable package); the spec at `context/05-api-and-backend.md:354` said `customs_agent.config.starter_prompts` (inside the package). Resolved by treating PROGRESS.md as a typo and landing the package conversion to honor the spec's import path. All 3 existing importers of `from customs_agent.config import settings` continue to work via re-export in `config/__init__.py`. The singleton `settings = Settings()` instantiation also moved here, with the `MANIFEST_PATH` module constant resolving Docker `/app/manifest.json` first and walk-up local fallback. PROGRESS.md path corrected in this session's admin sweep.
+  - **Test fakes extraction** (chunk 3a) — moved `FakeAnthropicClient` + 5 supporting dataclasses (`FakeTextBlock`, `FakeToolUseBlock`, `FakeUsage`, `FakeResponse`, `_FakeMessagesAPI`) from `tests/unit/agent/conftest.py` to `tests/_fakes.py` so the integration suite + future eval suite can reuse them without cross-subdir conftest imports. Agent conftest re-imports + re-exports to preserve existing test imports. Future Day-4 eval suite will use the same fakes.
+  - **Local uvicorn smoke test pattern** — `uvicorn customs_agent.main:app --port 8080` in background, `curl --retry-connrefused --retry 20 --retry-delay 1 /health` to wait for boot, then `/ready` + `/docs` + `/openapi.json`. macOS doesn't ship GNU `timeout`, so background uvicorn is killed via `lsof -ti:8080 | xargs kill -TERM` after the curls. Public endpoints work without an API key; `/chat` requires the key from `.env` (Claude can't read `.env`, so `/chat` is user-manual smoke).
+- **Next session**: Day 4 begins with `chore/dockerfile-fly` (multi-stage Dockerfile with `uv` + BuildKit secrets per Fork 41, `fly.toml` with iad region + shared-cpu-1x 1GB always-on per Forks 36/37, `flyctl launch` + `fly secrets set` for all backend env vars, verify `/health` + `/ready` on deployed URL). After that, `feat/web-mvp` (Next.js scaffolding) and `chore/ci-cd` (real ci.yml + deploy.yml). Day 4 also unlocks `feat/remaining-tools-and-eval` (3 more tools + eval suite + EVALUATION.md generator), `feat/observability-base` (full structured logging replacing the interim `api/_request_id.py`), and `feat/api-contract` (OpenAPI snapshot + frontend codegen via G3).
 
 ---
 
