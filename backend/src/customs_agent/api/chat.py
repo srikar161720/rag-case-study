@@ -1,19 +1,62 @@
-"""Public re-export of the ``/chat`` request and response contracts (Fork 28).
+"""``POST /chat`` non-streaming endpoint (Fork 23 + 28).
 
-The agent's primary data model lives in
-:mod:`customs_agent.agent.contracts`. This module exists so PROGRESS.md's
-``api/chat.py`` named-export checklist item is honored without duplicating
-type definitions, and so the FastAPI route function that lands on
-``feat/fastapi-backend`` has a conventional import path::
+Thin handler that:
 
-    from customs_agent.api.chat import ChatRequest, ChatResponse
+1. Reads the per-request ``request_id`` stamped by
+   :mod:`customs_agent.api._request_id` (full structured logging
+   middleware lands on ``feat/observability-base``).
+2. Reads the singleton :class:`AgentContext` built once at boot by
+   :func:`customs_agent.agent.bootstrap.build_agent_context` and stored
+   on ``app.state.agent_ctx``.
+3. Forwards to :func:`customs_agent.agent.loop.run_agent` — the sync
+   orchestrator that owns the tool-calling loop, citation marker
+   stripping, refusal detection, and sidecar assembly. ``run_agent``
+   never raises (graceful degradation via the three "limit hit" flags
+   on :class:`ResponseMeta`), so this handler never needs its own
+   try/except.
 
-If new request/response types ever need to be added that don't belong in
-the agent layer (e.g., endpoint-specific query params), they go here
-directly. Today, only the two top-level wire types route through this
-shim.
+The contract types (:class:`ChatRequest`, :class:`ChatResponse`) live
+in :mod:`customs_agent.agent.contracts` next to the producer that
+constructs them; this module re-exports them so the historical import
+path ``from customs_agent.api.chat import ChatRequest, ChatResponse``
+keeps working (preserving the PROGRESS.md ``api/chat.py`` named-export
+checklist item).
+
+The streaming variant (``POST /chat/stream``) lands on
+``feat/streaming`` per Fork 29 Phase 1.
 """
 
-from customs_agent.agent.contracts import ChatRequest, ChatResponse
+from fastapi import APIRouter, Depends, Request
 
-__all__ = ["ChatRequest", "ChatResponse"]
+from customs_agent.agent.bootstrap import AgentContext
+from customs_agent.agent.contracts import ChatRequest, ChatResponse
+from customs_agent.agent.loop import run_agent
+from customs_agent.api._rate_limit import limiter
+from customs_agent.api.auth import require_api_key
+from customs_agent.config import settings
+
+router = APIRouter()
+
+
+@router.post("/chat", dependencies=[Depends(require_api_key)])
+@limiter.limit(f"{settings.ratelimit_chat_per_minute}/minute")
+async def chat(request: Request, body: ChatRequest) -> ChatResponse:
+    """Forward the user turn to :func:`run_agent` and return its
+    :class:`ChatResponse` verbatim.
+
+    The slowapi decorator inspects ``request`` to compute the bucket
+    key — the parameter is required by the decorator contract even
+    though the handler body doesn't otherwise need the raw request
+    object beyond the ``app.state`` and ``state.request_id`` reads.
+    """
+    request_id: str = request.state.request_id
+    ctx: AgentContext = request.app.state.agent_ctx
+    return run_agent(
+        ctx,
+        user_message=body.messages[-1].content,
+        history=list(body.messages[:-1]),
+        request_id=request_id,
+    )
+
+
+__all__ = ["ChatRequest", "ChatResponse", "router"]

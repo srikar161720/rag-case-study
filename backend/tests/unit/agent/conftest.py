@@ -11,8 +11,10 @@ Provides:
 - ``fake_anthropic_client`` — a stub for ``anthropic.Anthropic`` with
   a ``.messages.create`` method that records every call and pops
   queued ``FakeResponse`` objects. The matching FakeResponse + block
-  dataclasses live in this module so loop tests can construct
-  scenarios concisely.
+  dataclasses live in :mod:`tests._fakes` (extracted on
+  ``feat/fastapi-backend`` so the integration suite at
+  ``tests/integration/`` can reuse the exact same fakes without a
+  cross-subdir conftest import).
 - ``agent_context_factory`` — composes the above into an
   :class:`AgentContext` so loop tests can spin one up in one line.
 """
@@ -32,6 +34,23 @@ from customs_agent.data.load import load_entries
 from customs_agent.data.validation import validate_loaded_data
 from customs_agent.data.views import create_views
 from customs_agent.rag.chunker import Chunk
+from tests._fakes import (
+    FakeAnthropicClient,
+    FakeResponse,
+    FakeTextBlock,
+    FakeToolUseBlock,
+    FakeUsage,
+)
+
+# Re-export so existing tests' ``from tests.unit.agent.conftest import
+# FakeResponse, ...`` style imports continue to work unchanged.
+__all__ = [
+    "FakeAnthropicClient",
+    "FakeResponse",
+    "FakeTextBlock",
+    "FakeToolUseBlock",
+    "FakeUsage",
+]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DuckDB session fixture
@@ -89,75 +108,8 @@ def fake_retriever_factory():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Fake Anthropic client
+# Fake Anthropic client — dataclasses live in tests/_fakes.py; fixture below
 # ─────────────────────────────────────────────────────────────────────────────
-
-
-@dataclass
-class FakeTextBlock:
-    """Mirrors anthropic's TextBlock surface (the bits the loop reads)."""
-    text: str
-    type: str = "text"
-
-
-@dataclass
-class FakeToolUseBlock:
-    """Mirrors anthropic's ToolUseBlock surface."""
-    name: str
-    input: dict[str, Any]
-    id: str
-    type: str = "tool_use"
-
-
-@dataclass
-class FakeUsage:
-    """Mirrors anthropic's Usage object (subset)."""
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cache_read_input_tokens: int = 0
-
-
-@dataclass
-class FakeResponse:
-    """Mirrors anthropic's Message response surface."""
-    stop_reason: str
-    content: list[FakeTextBlock | FakeToolUseBlock]
-    usage: FakeUsage | None = None
-
-
-@dataclass
-class _FakeMessagesAPI:
-    """Stand-in for ``Anthropic().messages``."""
-    parent: "FakeAnthropicClient"
-
-    def create(self, **kwargs: Any) -> FakeResponse:
-        self.parent.calls.append(kwargs)
-        if not self.parent._queued:
-            raise RuntimeError(
-                "FakeAnthropicClient: no canned response queued. "
-                "Did the test forget to call .queue() enough times?"
-            )
-        return self.parent._queued.pop(0)
-
-
-@dataclass
-class FakeAnthropicClient:
-    """Records every messages.create call; replays queued responses in order.
-
-    Drop-in replacement for ``anthropic.Anthropic()`` for any test that
-    exercises run_agent. Set up scenarios via ``.queue(FakeResponse(...))``;
-    inspect ``.calls`` to assert on what the loop sent.
-    """
-
-    calls: list[dict[str, Any]] = field(default_factory=list)
-    _queued: list[FakeResponse] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        self.messages = _FakeMessagesAPI(parent=self)
-
-    def queue(self, response: FakeResponse) -> None:
-        """Add a response to the FIFO replay queue."""
-        self._queued.append(response)
 
 
 @pytest.fixture
