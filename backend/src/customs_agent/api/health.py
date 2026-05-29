@@ -70,27 +70,45 @@ async def ready(request: Request, response: Response) -> dict[str, Any]:
         checks["chroma"] = {"ok": False, "error": str(e)}
         overall_ok = False
 
-    # BM25 — presence check only
+    # BM25 — presence check only. A None ``_bm25`` (incomplete boot,
+    # future regression) is a degraded state worth surfacing in the
+    # readiness contract — mirrors the ``chunk_count == 0 → overall_ok
+    # = False`` flip in the chroma block above.
     try:
         retriever = request.app.state.retriever
-        checks["bm25"] = {"ok": retriever._bm25 is not None}
+        bm25_ok = retriever._bm25 is not None
+        checks["bm25"] = {"ok": bm25_ok}
+        if not bm25_ok:
+            overall_ok = False
     except Exception as e:  # pragma: no cover — defensive
         checks["bm25"] = {"ok": False, "error": str(e)}
         overall_ok = False
 
-    # Build manifest passthrough. Missing manifest is non-fatal — Docker
-    # bakes one but local dev may not have run `make build-index` yet.
-    manifest = json.loads(MANIFEST_PATH.read_text()) if MANIFEST_PATH.exists() else {}
-    checks["manifest"] = {
-        "ok": True,
-        "prompt_version": PROMPT_VERSION,
-        "model": settings.llm_model,
-        "embedding_model": manifest.get("embedding_model"),
-        "chunk_count": manifest.get("chunk_count"),
-        "built_at": manifest.get("built_at"),
-        "agent_max_iterations": settings.agent_max_iterations,
-        "temperature": settings.llm_temperature,
-    }
+    # Build manifest passthrough. A missing manifest stays non-fatal
+    # (Docker bakes one but local dev may not have run ``make
+    # build-index`` yet — manifest fields surface as None and ``ok``
+    # stays True). A present-but-corrupt manifest is a real subsystem
+    # failure and degrades to 503 in the same shape as the other
+    # checks, so the /ready contract holds: 503 on ANY subsystem
+    # trouble, including a malformed manifest.
+    try:
+        if MANIFEST_PATH.exists():
+            manifest = json.loads(MANIFEST_PATH.read_text())
+        else:
+            manifest = {}
+        checks["manifest"] = {
+            "ok": True,
+            "prompt_version": PROMPT_VERSION,
+            "model": settings.llm_model,
+            "embedding_model": manifest.get("embedding_model"),
+            "chunk_count": manifest.get("chunk_count"),
+            "built_at": manifest.get("built_at"),
+            "agent_max_iterations": settings.agent_max_iterations,
+            "temperature": settings.llm_temperature,
+        }
+    except Exception as e:  # pragma: no cover — defensive
+        checks["manifest"] = {"ok": False, "error": str(e)}
+        overall_ok = False
 
     duration_ms = int((perf_counter() - t0) * 1000)
     if not overall_ok:

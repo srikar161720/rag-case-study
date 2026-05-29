@@ -30,7 +30,7 @@ from fastapi import APIRouter, Depends, Request
 
 from customs_agent.agent.bootstrap import AgentContext
 from customs_agent.agent.contracts import ChatRequest, ChatResponse
-from customs_agent.agent.loop import run_agent
+from customs_agent.agent.loop import AgentLoopSettings, run_agent
 from customs_agent.api._rate_limit import limiter
 from customs_agent.api.auth import require_api_key
 from customs_agent.config import settings
@@ -48,14 +48,22 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
     key — the parameter is required by the decorator contract even
     though the handler body doesn't otherwise need the raw request
     object beyond the ``app.state`` and ``state.request_id`` reads.
+
+    ``app.state.loop_settings`` is built once at lifespan startup from
+    the live ``Settings`` values; passing it as ``settings=`` to
+    ``run_agent`` keeps env-overridden ``LLM_MODEL`` /
+    ``AGENT_MAX_ITERATIONS`` etc. live in the loop rather than no-oping
+    against the hardcoded ``DEFAULT_LOOP_SETTINGS``.
     """
     request_id: str = request.state.request_id
     ctx: AgentContext = request.app.state.agent_ctx
+    loop_settings: AgentLoopSettings = request.app.state.loop_settings
     return run_agent(
         ctx,
         user_message=body.messages[-1].content,
         history=list(body.messages[:-1]),
         request_id=request_id,
+        settings=loop_settings,
     )
 
 

@@ -87,5 +87,30 @@ async def test_require_api_key_uses_constant_time_compare(
     monkeypatch.setattr("customs_agent.api.auth.compare_digest", spy)
     await require_api_key(x_api_key=settings.backend_api_key)
     assert len(calls) == 1
-    assert calls[0][0] == settings.backend_api_key
-    assert calls[0][1] == settings.backend_api_key
+    # The handler encodes both args to UTF-8 bytes before the compare
+    # to dodge the TypeError ``compare_digest`` raises on non-ASCII
+    # str inputs — see test_require_api_key_non_ascii_value_returns_403.
+    assert calls[0][0] == settings.backend_api_key.encode("utf-8")
+    assert calls[0][1] == settings.backend_api_key.encode("utf-8")
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_require_api_key_non_ascii_value_returns_403() -> None:
+    """Non-ASCII ``X-API-Key`` value follows the invalid-key branch
+    (403), NOT the ``TypeError`` path that bare ``compare_digest`` on
+    str inputs would raise.
+
+    Before the byte-encoding fix, ``compare_digest("tëst-key", ...)``
+    raised ``TypeError("comparing strings with non-ASCII characters is
+    not supported")`` and propagated as a 500. The fix encodes both
+    args to UTF-8 bytes, which trivially handles any header byte
+    sequence and routes wrong-keys through the documented 403 path.
+    """
+    with pytest.raises(HTTPException) as exc_info:
+        await require_api_key(x_api_key="tëst-këy-with-umlauts")
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == {
+        "error": "invalid_api_key",
+        "message": "Invalid API key.",
+    }
