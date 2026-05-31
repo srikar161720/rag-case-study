@@ -1,0 +1,35 @@
+# Python caches
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Build artifacts — regenerated inside Docker, must not leak from local dev
+chroma_db/
+bm25.pkl
+manifest.json
+.venv/
+dist/
+build/
+*.egg-info/
+
+# Tests not needed in runtime image
+tests/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
