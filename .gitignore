@@ -63,6 +63,8 @@ backend/manifest.json
 # ─────────────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
+# Claude Code preview/launch config — local dev tooling, not a project artifact
+.claude/launch.json
 *.swp
 *.swo
 *.swn
