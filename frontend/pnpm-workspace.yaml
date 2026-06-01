@@ -1,0 +1,12 @@
+# pnpm 11 reads build-script approvals here (the package.json "pnpm" field is
+# no longer read as of pnpm 10+/11). These two transitive native deps ship
+# prebuilt binaries and need their install scripts to run:
+#   - sharp         → Next.js image optimizer
+#   - unrs-resolver → eslint-config-next's import resolver
+# Approving them explicitly keeps `pnpm install` non-interactive and CI-stable
+# (CI runs `pnpm install --frozen-lockfile`); otherwise pnpm's
+# verify-deps-before-run hook fails every `pnpm <script>` with
+# ERR_PNPM_IGNORED_BUILDS.
+allowBuilds:
+  sharp: true
+  unrs-resolver: true
