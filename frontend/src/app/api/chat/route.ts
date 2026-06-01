@@ -53,13 +53,23 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Forward the backend response (success or error) verbatim. Non-streaming, so
-  // the body is JSON in both cases.
+  // Forward the backend response body + status. We deliberately rebuild a
+  // minimal header set rather than copying all upstream headers: blindly
+  // forwarding Content-Length / Content-Encoding / Transfer-Encoding while
+  // re-piping the body can corrupt the response, and the backend's
+  // browser-oriented security headers (X-Frame-Options, HSTS) don't belong on
+  // this fetch-consumed JSON proxy response (and HSTS shouldn't be asserted for
+  // the Vercel origin from here). We DO forward Retry-After so a 429 still tells
+  // the client how long to back off. Non-streaming, so the body is JSON either way.
+  const headers: Record<string, string> = {
+    "Content-Type": upstream.headers.get("Content-Type") ?? "application/json",
+    "Cache-Control": "no-cache",
+  };
+  const retryAfter = upstream.headers.get("Retry-After");
+  if (retryAfter) headers["Retry-After"] = retryAfter;
+
   return new Response(upstream.body, {
     status: upstream.status,
-    headers: {
-      "Content-Type": upstream.headers.get("Content-Type") ?? "application/json",
-      "Cache-Control": "no-cache",
-    },
+    headers,
   });
 }
