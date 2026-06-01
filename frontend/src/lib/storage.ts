@@ -23,12 +23,19 @@ export interface StoredConversation {
   messages: ChatMessage[]; // includes the sidecar on assistant messages
 }
 
-/** Load the active conversation, or null if absent / unreadable. */
+/** Load the active conversation, or null if absent / unreadable / malformed. */
 export function loadActiveConversation(): StoredConversation | null {
   try {
     const raw = localStorage.getItem(ACTIVE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as StoredConversation;
+    const parsed = JSON.parse(raw) as StoredConversation;
+    // Validate the minimal shape we actually depend on: `messages` MUST be an
+    // array, or Chat's `state.messages.map(...)` throws on hydrate. The stored
+    // value is persisted, so a corrupt/legacy shape would re-crash on every
+    // reload (and there's no ErrorBoundary yet — that's G20). Degrade to a
+    // fresh conversation instead of trusting the cast.
+    if (!parsed || !Array.isArray(parsed.messages)) return null;
+    return parsed;
   } catch {
     // Private mode, corrupt JSON, or quota — degrade to no stored state.
     return null;

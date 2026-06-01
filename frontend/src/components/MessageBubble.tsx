@@ -24,7 +24,7 @@ const markdownComponents: Components = {
     <a
       href={href}
       target="_blank"
-      rel="noreferrer"
+      rel="noopener noreferrer"
       className="underline underline-offset-2"
     >
       {children}

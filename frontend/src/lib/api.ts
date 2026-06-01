@@ -44,6 +44,17 @@ function codeForStatus(status: number): ApiErrorCode {
 function parseErrorBody(body: unknown): { message?: string; retryAfter?: number } {
   if (typeof body !== "object" || body === null) return {};
   const b = body as Record<string, unknown>;
+
+  // FastAPI/Pydantic auto-validation errors come back as
+  // `{ detail: [{ msg, loc, ... }, ...] }` (a list, not an object). Surface a
+  // clean user-facing message rather than the raw Pydantic text (which is
+  // developer-oriented, e.g. "String should have at most 2000 characters") —
+  // this also matches the fixed-copy approach the G10 error layer will use.
+  // (Checked before the object branch below because arrays are typeof "object".)
+  if (Array.isArray(b.detail)) {
+    return { message: "Your message couldn't be processed. Please rephrase and try again." };
+  }
+
   const detail =
     typeof b.detail === "object" && b.detail !== null
       ? (b.detail as Record<string, unknown>)
