@@ -29,9 +29,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Pin to a release tag (not @master) so third-party action code can't
-      # change under us without review.
-      - uses: superfly/flyctl-actions/setup-flyctl@v1.5
+      # Pin to the v1 major tag (not @master) so third-party action code can't
+      # change under us without review. NOTE: this repo's tags are irregular —
+      # the GitHub release *titled* "v1.5" points to a tag literally named "1.5";
+      # there is NO "v1.5" ref (that typo failed the first auto-deploy). "v1" is
+      # the maintained major-version tag and resolves correctly.
+      - uses: superfly/flyctl-actions/setup-flyctl@v1
       - name: Deploy to Fly
         run: |
           flyctl deploy --config backend/fly.toml \
