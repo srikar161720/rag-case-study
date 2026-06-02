@@ -1,34 +1,59 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Deploy workflow — PLACEHOLDER
+# Deploy — build + push the backend image to Fly on every push to main
+# (post-merge), then smoke-test /ready. Frontend deploys are handled entirely
+# by Vercel's GitHub integration (auto-preview on PR, auto-promote on merge), so
+# there's no frontend step here.
 #
-# Triggers `workflow_dispatch` only for now because no Fly secrets are
-# configured yet. Real auto-deploy on push to `main` lands on the
-# `chore/ci-cd` branch (Day 3) per PROGRESS.md.
+# Rollback is MANUAL (G17): if the smoke test fails the workflow goes red and a
+# human rolls back via `flyctl releases rollback` — no auto-rollback machinery.
 #
-# Frontend deploys are handled by Vercel's GitHub integration (auto-preview
-# on PR, auto-promote on merge to main) — no workflow needed for that.
-#
-# Planned backend deploy steps (see context/08-cicd-and-testing.md):
-#   - flyctl deploy --remote-only --build-secret openai_key=$OPENAI_API_KEY
-#   - Smoke-test /ready on the deployed URL with retry
-#   - Failure → auto-rollback to previous release
-#
-# Required GitHub Secrets before enabling auto-deploy:
-#   FLY_API_TOKEN, OPENAI_API_KEY, ANTHROPIC_API_KEY,
-#   LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
+# Required GitHub Actions secrets:
+#   FLY_API_TOKEN   — `flyctl auth token`
+#   OPENAI_API_KEY  — passed as a BuildKit secret so build_index.py can embed the
+#                     knowledge chunks during the image build (never lands in a layer)
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: Deploy
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
+
+# Never let two deploys to main overlap; let an in-flight one finish.
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
 
 jobs:
-  placeholder:
-    name: Placeholder
+  deploy-backend:
     runs-on: ubuntu-latest
     steps:
-      - name: Announce placeholder status
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Deploy to Fly
         run: |
-          echo "::notice::Placeholder deploy workflow — real jobs land on chore/ci-cd (Day 3)."
-          echo "See context/08-cicd-and-testing.md for the deploy spec and required secrets."
+          flyctl deploy --config backend/fly.toml \
+            --build-secret openai_key=$OPENAI_API_KEY \
+            --remote-only \
+            --app customs-agent-backend
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Wait for new machine
+        run: sleep 15
+
+      - name: Smoke test /ready
+        run: |
+          set -e
+          response=$(curl -sf -w "\n%{http_code}" \
+            https://customs-agent-backend.fly.dev/ready)
+          body=$(echo "$response" | head -n -1)
+          status=$(echo "$response" | tail -n 1)
+          if [ "$status" != "200" ]; then
+            echo "::error::/ready returned $status"
+            echo "$body"
+            exit 1
+          fi
+          echo "✓ /ready passed"
+          echo "$body" | jq .
