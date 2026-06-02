@@ -36,8 +36,17 @@ jobs:
       # the maintained major-version tag and resolves correctly.
       - uses: superfly/flyctl-actions/setup-flyctl@v1
       - name: Deploy to Fly
+        # Pass `backend` as the working-directory (build-context) argument so the
+        # build context, --config, and the auto-detected ./Dockerfile all resolve
+        # from inside backend/ — exactly like the manual `cd backend && fly deploy`.
+        # Fly resolves the Dockerfile relative to the build context, NOT relative
+        # to the --config file: from the repo root, `--config backend/fly.toml`
+        # alone still looks for ./Dockerfile at the root (which doesn't exist) and
+        # fails with "app does not have a Dockerfile or buildpacks configured".
+        # Per Fly's monorepo docs, --config/--dockerfile are relative to the
+        # working-directory argument.
         run: |
-          flyctl deploy --config backend/fly.toml \
+          flyctl deploy backend --config fly.toml \
             --build-secret openai_key="$OPENAI_API_KEY" \
             --remote-only \
             --app customs-agent-backend
