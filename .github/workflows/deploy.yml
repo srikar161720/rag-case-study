@@ -29,11 +29,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      # Pin to a release tag (not @master) so third-party action code can't
+      # change under us without review.
+      - uses: superfly/flyctl-actions/setup-flyctl@v1.5
       - name: Deploy to Fly
         run: |
           flyctl deploy --config backend/fly.toml \
-            --build-secret openai_key=$OPENAI_API_KEY \
+            --build-secret openai_key="$OPENAI_API_KEY" \
             --remote-only \
             --app customs-agent-backend
         env:
@@ -45,15 +47,27 @@ jobs:
 
       - name: Smoke test /ready
         run: |
-          set -e
-          response=$(curl -sf -w "\n%{http_code}" \
-            https://customs-agent-backend.fly.dev/ready)
-          body=$(echo "$response" | head -n -1)
-          status=$(echo "$response" | tail -n 1)
-          if [ "$status" != "200" ]; then
-            echo "::error::/ready returned $status"
-            echo "$body"
-            exit 1
-          fi
-          echo "✓ /ready passed"
-          echo "$body" | jq .
+          # Poll /ready with retries. Do NOT use `curl -f` here: -f exits
+          # non-zero on a non-2xx, which (under set -e) would abort before we
+          # capture the status — defeating the explicit check and making a
+          # transient 503 mid-rollout look like a hard failure. Capture the HTTP
+          # code instead and retry a few times before giving up.
+          url="https://customs-agent-backend.fly.dev/ready"
+          attempts=5
+          status=000
+          body=""
+          for i in $(seq 1 "$attempts"); do
+            body=$(curl -s -m 10 -w $'\n%{http_code}' "$url" || true)
+            status=$(printf '%s' "$body" | tail -n 1)
+            body=$(printf '%s' "$body" | sed '$d')
+            if [ "$status" = "200" ]; then
+              echo "✓ /ready passed (attempt $i)"
+              printf '%s' "$body" | jq .
+              exit 0
+            fi
+            echo "attempt $i/$attempts: /ready returned $status — retrying in 10s"
+            sleep 10
+          done
+          echo "::error::/ready did not return 200 after $attempts attempts (last status: $status)"
+          printf '%s\n' "$body"
+          exit 1
