@@ -1,31 +1,84 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# CI workflow — PLACEHOLDER
+# CI — lint, typecheck, test, secret-scan on every PR + push to main.
 #
-# This file currently exists only so the .github/workflows/ directory is
-# present and the file path is reserved. Real jobs land on the `chore/ci-cd`
-# branch (Day 3) per PROGRESS.md.
+# Scope (per PROGRESS.md `chore/ci-cd`): three jobs — backend, frontend,
+# secret-scan. Two more jobs from the full spec land on later branches once
+# their prerequisite files exist:
+#   - api-contract (G3, openapi.json ↔ api-types.ts drift) → feat/api-contract
+#   - evaluation-freshness (PROMPT_VERSION vs EVALUATION.md) → feat/remaining-tools-and-eval
+# The real-LLM eval lives in its own workflow (eval.yml), also a later branch.
 #
-# Planned jobs (see context/08-cicd-and-testing.md for full spec):
-#   - backend: uv sync --frozen → uv lock --check → ruff → mypy → pytest
-#   - frontend: pnpm install --frozen-lockfile → lint → typecheck → test → build
-#   - api-contract: regenerate openapi.json + api-types.ts, fail on drift
-#   - secret-scan: gitleaks
+# No repo secrets are needed here: the backend suite is hermetic (tests/conftest.py
+# sets env via os.environ.setdefault + tests/_fakes.py stubs the LLM), and the
+# frontend reads BACKEND_URL/BACKEND_API_KEY only at request time, not at build.
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  placeholder:
-    name: Placeholder
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      # `uv sync --locked` installs deps AND asserts uv.lock is current — the
+      # G12 lockfile-drift guard in one step.
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run mypy src
+      - run: uv run pytest tests/unit tests/integration
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      # Pin pnpm explicitly to match package.json's packageManager (pnpm@11.1.3);
+      # omitting it risks a Corepack version mismatch.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      # --frozen-lockfile runs sharp + unrs-resolver install scripts, pre-approved
+      # in frontend/pnpm-workspace.yaml (allowBuilds), so it won't trip
+      # ERR_PNPM_IGNORED_BUILDS.
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm build
+      # No `pnpm test` step: the test script is a no-op until Vitest lands on
+      # feat/frontend-tests (Day 6, G2).
+
+  secret-scan:
     runs-on: ubuntu-latest
     steps:
-      - name: Announce placeholder status
-        run: |
-          echo "::notice::Placeholder CI — real jobs land on chore/ci-cd (Day 3)."
-          echo "See context/08-cicd-and-testing.md for the planned job structure."
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so gitleaks scans every commit
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          # GITHUB_TOKEN is auto-provided; lets the action comment on PRs.
+          # GITLEAKS_LICENSE is only required for organization repos, not this
+          # user-account repo, so it's intentionally omitted.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
