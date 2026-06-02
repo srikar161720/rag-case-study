@@ -8,9 +8,13 @@
 #   - evaluation-freshness (PROMPT_VERSION vs EVALUATION.md) → feat/remaining-tools-and-eval
 # The real-LLM eval lives in its own workflow (eval.yml), also a later branch.
 #
-# No repo secrets are needed here: the backend suite is hermetic (tests/conftest.py
-# sets env via os.environ.setdefault + tests/_fakes.py stubs the LLM), and the
-# frontend reads BACKEND_URL/BACKEND_API_KEY only at request time, not at build.
+# The frontend job needs no secrets. The backend job needs OPENAI_API_KEY: its
+# integration tests boot the full FastAPI app, whose lifespan loads the RAG index
+# (chroma_db/ + bm25.pkl) — gitignored build artifacts absent on a fresh checkout —
+# so the job builds the index first (one OpenAI embedding call, ~$0.0001). The
+# test suite itself is hermetic (tests/conftest.py env shim + tests/_fakes.py
+# stubs the Anthropic client); the frontend reads BACKEND_URL/BACKEND_API_KEY only
+# at request time, not at build.
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: CI
@@ -41,6 +45,17 @@ jobs:
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run mypy src
+      # Integration tests boot the full app via lifespan, which loads the RAG
+      # index from disk. chroma_db/ + bm25.pkl are gitignored (baked at Docker
+      # build), so build them here before pytest. Mirrors eval.yml's approach.
+      - name: Build RAG index (integration tests boot the full app)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          uv run python scripts/build_index.py \
+            --out-chroma ./chroma_db \
+            --out-bm25 ./bm25.pkl \
+            --out-manifest ./manifest.json
       - run: uv run pytest tests/unit tests/integration
 
   frontend:
@@ -57,7 +72,10 @@ jobs:
           version: 11.1.3
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # Node 22 (matches .tool-versions: nodejs 22.22.3). pnpm 11.x requires
+          # Node >= 22.13 (uses the node:sqlite builtin); Node 20 fails with
+          # ERR_UNKNOWN_BUILTIN_MODULE.
+          node-version: "22"
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
       # --frozen-lockfile runs sharp + unrs-resolver install scripts, pre-approved
