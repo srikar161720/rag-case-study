@@ -182,6 +182,15 @@ that would bundle them into the client JavaScript):
 that variables prefixed with `NEXT_PUBLIC_` would be bundled to the
 browser, and we deliberately have none.
 
+> **As-built note (`feat/web-mvp`)**: the committed `.env.example`
+> originally declared the URL as `NEXT_PUBLIC_BACKEND_URL` (a scaffold
+> typo) while this spec + the proxy route both use server-side-only
+> `BACKEND_URL`. Renamed to `BACKEND_URL` on-branch so the proxy's
+> `process.env.BACKEND_URL` resolves (a `NEXT_PUBLIC_`-prefixed name is
+> a different variable and would read `undefined` server-side). The
+> browser never needs it — all traffic flows through the same-origin
+> `/api/chat` proxy.
+
 ---
 
 ## Chat Container (`<Chat>`)
@@ -263,6 +272,20 @@ than `useState` for the multi-event progressive update from the SSE
 stream), but the sketch shows the lifecycle: hydrate → render → submit
 → stream events into the last assistant bubble → persist on every
 change.
+
+> **As-built note (`feat/web-mvp` Phase 1)**: the shipped MVP is
+> **non-streaming**. The sketch above (and the `sendChat({messages,
+> onEvent})` SSE signature in the "Error Handling" section below) shows
+> the *eventual* streaming shape; Phase-1 `lib/api.ts` instead does a
+> plain `sendChat(messages): Promise<ChatResponse>` — one `POST
+> /api/chat` → one full JSON response rendered when complete — and the
+> reducer uses `isLoading` (a "Thinking…" indicator) rather than
+> progressive `SSE_EVENT` dispatch. SSE streaming (`/chat/stream`,
+> `lib/sse.ts`, progressive panel) lands on `feat/streaming` (Day 6,
+> Fork 29 Phase 2). The empty state on Phase 1 is a minimal centered
+> heading — the starter chips (Fork 30, below) are a later branch.
+> `lib/api.ts` also strips the assistant `sidecar` to `{role, content}`
+> before re-sending history (backend `Message` is `extra="forbid"`).
 
 ---
 

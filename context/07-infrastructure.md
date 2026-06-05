@@ -261,7 +261,7 @@ secret lives in exactly the platforms that need it.
 | Secret | Local (`.env`) | Fly Secrets (backend runtime) | Vercel Env (frontend server-side) | GitHub Actions Secrets (build + CI) |
 |---|---|---|---|---|
 | `ANTHROPIC_API_KEY` | ✅ | ✅ | — | ✅ (eval workflow) |
-| `OPENAI_API_KEY` | ✅ | — (build-time only per Fork 17) | — | ✅ (Docker BuildKit secret) |
+| `OPENAI_API_KEY` | ✅ | ✅ **(runtime — see note)** | — | ✅ (Docker BuildKit secret + CI RAG-index build) |
 | `BACKEND_API_KEY` | ✅ both `.env` files | ✅ (validates) | ✅ (injects via server route) | — |
 | `LANGFUSE_PUBLIC_KEY` | ✅ | ✅ | — | ✅ (eval traces) |
 | `LANGFUSE_SECRET_KEY` | ✅ | ✅ | — | ✅ |
@@ -278,9 +278,18 @@ secret lives in exactly the platforms that need it.
 2. **`BACKEND_API_KEY` lives in two places by necessity**: backend
    validates (Fly Secret), Next.js server route injects (Vercel Env).
    **Frontend client-side never sees it** — never `NEXT_PUBLIC_*`.
-3. **`OPENAI_API_KEY` is build-time only** thanks to Fork 17 (Docker
-   bakes embeddings into the image). The runtime Fly container never
-   has it. Smaller credential surface.
+3. **`OPENAI_API_KEY` is needed at BOTH build time AND runtime**
+   (corrected on `chore/dockerfile-fly` — the original "build-time
+   only per Fork 17" assumption was WRONG). Fork 17 bakes the
+   knowledge-chunk embeddings into the image at build time, but
+   **dense retrieval embeds each incoming user query through OpenAI at
+   request time** (`rag/retriever.py` → chromadb's
+   `OpenAIEmbeddingFunction.query`), so the running Fly container needs
+   the key too — the first deploy crash-looped without it. The key
+   therefore lives in three GHA/Fly surfaces: Fly runtime secrets,
+   the Docker BuildKit build secret (`deploy.yml`), and the CI
+   RAG-index build step (`ci.yml` backend job). `main.py:lifespan`
+   mirrors it into `os.environ` for chromadb (Critical Gotcha #16/#19).
 4. **`FLY_API_TOKEN` lives only in GitHub Actions Secrets**, never
    anywhere else.
 
@@ -299,6 +308,7 @@ goes into both Fly Secrets and Vercel Env. Documented in
 ```bash
 fly secrets set \
   ANTHROPIC_API_KEY="..." \
+  OPENAI_API_KEY="..." \
   BACKEND_API_KEY="..." \
   ALLOWED_ORIGINS="https://customs-agent.vercel.app,^https://customs-agent-[a-z0-9]+-[a-z0-9-]+\.vercel\.app$" \
   LANGFUSE_PUBLIC_KEY="..." \
@@ -307,8 +317,10 @@ fly secrets set \
   --app customs-agent-backend
 ```
 
-Each `fly secrets set` triggers a redeploy (intentional — secret
-changes propagate immediately).
+`OPENAI_API_KEY` is included here because dense retrieval embeds each
+user query at runtime (key-isolation rule 3 above). Each `fly secrets
+set` triggers a redeploy (intentional — secret changes propagate
+immediately).
 
 ### Setting Vercel env vars
 
@@ -382,6 +394,12 @@ FROM python:3.12-slim AS builder
 
 # Install uv (10-100x faster than pip)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Use the system Python across both stages. uv defaults to a managed
+# (downloaded) interpreter; the runtime stage copies only /app/.venv, so a
+# managed interpreter would leave the venv's bin/python symlink dangling in
+# the final image and the container crash-loops on boot. (Critical Gotcha #20.)
+ENV UV_PYTHON_DOWNLOADS=0
 
 WORKDIR /app
 

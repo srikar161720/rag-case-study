@@ -302,6 +302,41 @@ otherwise-correct QBR.
 
 ## CI Workflow: `ci.yml`
 
+> **As-built note (`chore/ci-cd`, 2026-06-02)**: the YAML below is the
+> *eventual 5-job target*. What shipped on `chore/ci-cd` is **3 jobs**
+> — `backend`, `frontend`, `secret-scan`. The `api-contract` job (G3)
+> lands on `feat/api-contract` and `evaluation-freshness` on
+> `feat/remaining-tools-and-eval` (Day 4) — both depend on files that
+> don't exist yet (`openapi.json`, `api-types.ts`, `gen:types`,
+> `EVALUATION.md`), so including them now would make CI red. Branch
+> protection currently requires the 3 shipped checks; add
+> `api-contract` to the required list when it lands. Concrete deltas
+> from the snapshot below (action versions verified current via
+> Context7 + WebSearch, June 2026):
+> - **`astral-sh/setup-uv@v3` → `@v6`**.
+> - **Backend lockfile: `uv sync --locked`** (installs AND asserts
+>   `uv.lock` currency in one step) replaces the two-step `uv sync
+>   --frozen` + `uv lock --check`. Keeps G12's drift guard.
+> - **`pnpm/action-setup@v3` `version: 9` → `@v4` `version: 11.1.3`**
+>   (matches `package.json`'s `packageManager`; the spec's `9` causes a
+>   Corepack mismatch).
+> - **`actions/setup-node` `node-version: "20"` → `"22"`** — pnpm 11.x
+>   requires Node ≥ 22.13 (`node:sqlite` builtin); Node 20 dies with
+>   `ERR_UNKNOWN_BUILTIN_MODULE` (CLAUDE.md Gotcha #21).
+> - **Backend job builds the RAG index before `pytest`** (a
+>   `scripts/build_index.py` step with `OPENAI_API_KEY`), because the
+>   integration suite boots the full app via lifespan and the gitignored
+>   `chroma_db/`+`bm25.pkl` are absent on a fresh checkout (Gotcha #22).
+>   So the backend CI job is NOT secret-free — it needs `OPENAI_API_KEY`.
+> - **Frontend job runs lint + typecheck + build only** (no `pnpm
+>   test`) — the test script is a no-op until Vitest on
+>   `feat/frontend-tests` (Day 6, G2).
+> - **`pnpm install --frozen-lockfile`** relies on
+>   `frontend/pnpm-workspace.yaml` `allowBuilds` (sharp, unrs-resolver)
+>   or it fails `ERR_PNPM_IGNORED_BUILDS` (Gotcha #21).
+> - **gitleaks**: `GITHUB_TOKEN` only — `GITLEAKS_LICENSE` is org-repos
+>   only, not this user-account repo.
+
 ```yaml
 # .github/workflows/ci.yml
 name: CI
@@ -537,6 +572,29 @@ anything.
 ---
 
 ## CI Workflow: `deploy.yml`
+
+> **As-built note (`chore/ci-cd` + 2 post-merge hotfixes,
+> 2026-06-02)**: `deploy.yml` can only be exercised on a push to
+> `main`, so two bugs in the snapshot below surfaced as separate
+> post-merge hotfixes:
+> - **`flyctl deploy --config backend/fly.toml` (from repo root) fails**
+>   `app does not have a Dockerfile or buildpacks configured` — Fly
+>   resolves the Dockerfile relative to the **build-context /
+>   working-directory**, not the `--config` path. Shipped form passes
+>   `backend` as the workdir arg: **`flyctl deploy backend --config
+>   fly.toml ...`**, replicating the manual `cd backend && fly deploy`.
+> - **`setup-flyctl@master` → `@v1`** (Copilot review: don't float on
+>   `@master`). NOTE: `@v1.5` does NOT exist — the repo's release
+>   *titled* "v1.5" maps to a tag literally named `1.5`; `v1` is the
+>   maintained major tag. (CLAUDE.md Gotcha #23.)
+> - **Smoke test uses a retry loop, not `curl -sf` under `set -e`**
+>   (Copilot review): `-f` exits non-zero on a non-2xx, which under
+>   `set -e` aborts before the status check and turns a transient
+>   rollout 503 into a hard failure. Shipped form polls `/ready` up to
+>   5× capturing the HTTP code with `curl -s` (no `-f`).
+>
+> Rollback stays manual per G17. `OPENAI_API_KEY` is required here as a
+> Docker build secret (Gotcha #19).
 
 ```yaml
 # .github/workflows/deploy.yml — Fly deploy on merge to main

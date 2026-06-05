@@ -230,25 +230,25 @@ rag-case-study/
 │   │   ├── export_openapi.py       ← OpenAPI snapshot generator (G3)
 │   │   └── generate_evaluation_md.py  ← EVALUATION.md regenerator (G5)
 │   ├── tests/
-│   │   ├── conftest.py             ← root env shim (4 setdefault: ANTHROPIC_API_KEY, BACKEND_API_KEY, ALLOWED_ORIGINS, OPENAI_API_KEY, RATELIMIT_ENABLED=false)
+│   │   ├── conftest.py             ← root env shim (5 setdefault: ANTHROPIC_API_KEY, BACKEND_API_KEY, ALLOWED_ORIGINS, OPENAI_API_KEY, RATELIMIT_ENABLED=false)
 │   │   ├── _fakes.py               ← shared Anthropic SDK fakes (cross-conftest reuse for unit + integration + eval)
 │   │   ├── ground_truth.py + ground_truth.json    ← canonical answer key (Fork 43)
 │   │   ├── unit/                   ← api/ + data/ + agent/ + tools/ + rag/ subdirs (per-subdir conftest)
 │   │   ├── integration/            ← FastAPI app end-to-end via TestClient (PR #9)
 │   │   └── eval/                   ← real-LLM eval (Day 4)
-│   ├── chroma_db/ + bm25.pkl + manifest.json  ← `make build-index` artifacts (gitignored; Docker bakes; /ready reads manifest.json)
+│   ├── chroma_db/ + bm25.pkl + manifest.json  ← `make build-index` artifacts (gitignored; Docker bakes; CI builds before integration tests; /ready reads manifest.json)
 │   ├── pyproject.toml + uv.lock    ← uv-managed Python deps
-│   ├── Dockerfile + .dockerignore  ← multi-stage build (Fork 41)
-│   ├── fly.toml                    ← Fly.io deploy config (Forks 36, 37)
+│   ├── Dockerfile + .dockerignore  ← multi-stage build (Fork 41; UV_PYTHON_DOWNLOADS=0 in builder)
+│   ├── fly.toml                    ← Fly.io deploy config (Forks 36, 37; LIVE at customs-agent-backend.fly.dev)
 │   └── .env.example                ← backend secrets contract (Fork 39)
-└── frontend/                       ← Next.js App Router on Vercel
-    ├── src/app/                    ← App Router routes + server-side proxy
-    ├── src/components/             ← UI primitives (shadcn/ui + custom)
-    ├── src/lib/                    ← api, sse, storage, citations, errors, types
-    ├── public/                     ← favicon.ico + og-image.png (user-provided)
-    ├── package.json + pnpm-lock.yaml  ← pnpm 9.x managed
+└── frontend/                       ← Next.js App Router on Vercel (LIVE; Phase-1 chat MVP)
+    ├── src/app/                    ← layout + page + globals.css + api/chat/route.ts (server proxy)
+    ├── src/components/             ← Chat, MessageBubble, Header, ChatInput + ui/ (Button, Textarea)
+    ├── src/lib/                    ← api, storage, errors, types, utils (sse/citations land later branches)
+    ├── public/                     ← favicon.ico + og-image.png (user-provided, G22 — later branch)
+    ├── package.json + pnpm-lock.yaml + pnpm-workspace.yaml  ← pnpm 11.1.3 managed (allowBuilds: sharp, unrs-resolver)
     ├── vercel.json                 ← region pin (iad1)
-    └── .env.example                ← frontend secrets contract (Fork 39)
+    └── .env.example                ← frontend secrets contract (BACKEND_URL + BACKEND_API_KEY, server-side only)
 ```
 
 ---
@@ -292,7 +292,13 @@ deliverable. User-invoked only per G5.
 | CI/CD | GitHub Actions (3 workflows: ci, eval, deploy) | Fork 44 |
 | Observability | structlog (stdout JSON) + Langfuse Cloud | Fork 10 |
 | Backend package manager | `uv` (everywhere) | Fork 41, G12 |
-| Frontend package manager | `pnpm` 9.x via `packageManager` field + Corepack | Fork 35, G13 |
+| Frontend package manager | `pnpm` 11.1.3 via `packageManager` field + Corepack | Fork 35, G13 |
+
+> **pnpm version note**: the spec/G13 originally said "9.x", but `.tool-versions`
+> pins the installed `pnpm 11.1.3` / `nodejs 22.22.3`, and `package.json`'s
+> `packageManager` field matches. pnpm 11 requires **Node ≥ 22.13** (CI uses
+> Node 22) and reads build-script approvals from `pnpm-workspace.yaml`
+> (`allowBuilds`), not the `package.json` `pnpm` field. See Critical Gotcha #21.
 
 ---
 
@@ -457,6 +463,77 @@ forgotten. Every session must remember them.
     toggles `os.environ["RATELIMIT_ENABLED"] = "true"` around
     `Limiter()` construction and restores the prior value on
     teardown so other tests aren't polluted.
+19. **`OPENAI_API_KEY` is a RUNTIME secret, not build-time-only**
+    (`chore/dockerfile-fly`, surfaced on the first Fly deploy —
+    contradicts the Fork 17/39 "build-time only" decision). Dense
+    retrieval embeds **each user query** through OpenAI at request time
+    (`rag/retriever.py` → chromadb's `OpenAIEmbeddingFunction` on the
+    `query` path), so the running container needs the key — it isn't
+    just baked into the image as embeddings. The first deploy
+    crash-looped at lifespan with `chromadb ValueError:
+    CHROMA_OPENAI_API_KEY environment variable is not set`; fixed by
+    setting `OPENAI_API_KEY` as a Fly **runtime** secret (no code
+    change — `main.py:lifespan` already mirrors it to `os.environ` per
+    Gotcha #16). The same key is therefore needed in THREE places:
+    Fly runtime secrets, `deploy.yml` (Docker build secret), AND
+    `ci.yml`'s backend job (RAG-index build, Gotcha #22).
+    `backend/.env.example` comments reflect the build-time + runtime
+    duality.
+20. **Dockerfile builder MUST set `ENV UV_PYTHON_DOWNLOADS=0`**
+    (`chore/dockerfile-fly`; diverges from the
+    `context/07-infrastructure.md` Dockerfile snippet, which omits it).
+    uv defaults to `python-preference = managed` — it prefers a
+    uv-DOWNLOADED interpreter. The runtime stage copies **only**
+    `/app/.venv` from the builder, so if uv built the venv against a
+    managed interpreter, the venv's `bin/python` symlink points at a
+    Python that isn't in the final image → the container crash-loops on
+    boot. Pinning `UV_PYTHON_DOWNLOADS=0` forces the system Python
+    (present in `python:3.12-slim`) so the copied venv stays valid. The
+    official uv Docker guide does exactly this for the copy-the-venv
+    multi-stage pattern. Never remove it.
+21. **pnpm 11 needs Node ≥ 22.13, and reads build approvals from
+    `pnpm-workspace.yaml`** (`feat/web-mvp` + `chore/ci-cd`). Two
+    distinct pnpm-11 landmines: (a) pnpm 11.1.3 uses the `node:sqlite`
+    builtin (added in Node 22), so on Node 20 every `pnpm` invocation
+    dies with `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite` — CI's
+    `setup-node` MUST use `node-version: "22"` (matches
+    `.tool-versions`). (b) pnpm 10+/11 blocks dependency lifecycle
+    scripts by default; the `package.json` `pnpm.onlyBuiltDependencies`
+    field is **no longer read** (pnpm warns and ignores it) — approvals
+    live in `frontend/pnpm-workspace.yaml` under `allowBuilds:` (we
+    approve `sharp` + `unrs-resolver`, both prebuilt-binary deps Next
+    pulls in). Without this, `pnpm install --frozen-lockfile` (and even
+    `pnpm <script>` via the `verify-deps-before-run` hook) fails with
+    `ERR_PNPM_IGNORED_BUILDS`.
+22. **CI's backend job must build the RAG index before pytest**
+    (`chore/ci-cd`). The integration suite's session-scoped `client`
+    fixture boots the full FastAPI app via lifespan, which calls
+    `HybridRetriever.from_artifacts()` reading `chroma_db/` +
+    `bm25.pkl`. Those are **gitignored** (baked at Docker build), so a
+    fresh CI checkout doesn't have them → every integration test ERRORs
+    with `chromadb NotFoundError: Collection [knowledge] does not
+    exist`. `ci.yml`'s `backend` job runs `scripts/build_index.py`
+    (with `OPENAI_API_KEY`, Gotcha #19) AFTER ruff/mypy and BEFORE
+    pytest, mirroring `eval.yml`. Consequence: the backend CI job is
+    NOT secret-free — it needs `OPENAI_API_KEY` set as a repo secret.
+23. **`deploy.yml` must pass `backend` as the working-directory arg**,
+    and `setup-flyctl` pins to `@v1` not `@v1.5` (`chore/ci-cd` + 2
+    post-merge hotfixes). Two `flyctl` landmines, both only observable
+    after a push to `main` (deploy.yml fires nowhere else): (a) Fly
+    resolves the Dockerfile relative to the **build-context /
+    working-directory**, NOT the `--config` path — so `flyctl deploy
+    --config backend/fly.toml` from the repo root looks for
+    `./Dockerfile` at root and fails `app does not have a Dockerfile or
+    buildpacks configured`. Use `flyctl deploy backend --config
+    fly.toml` (pass `backend` as the workdir arg), replicating the
+    manual `cd backend && fly deploy`. (b) `superfly/flyctl-actions`
+    has irregular tags — the GitHub release *titled* "v1.5" points to a
+    tag literally named `1.5`; there is **no `v1.5` ref**. `v1` is the
+    maintained major-version tag. Pin `setup-flyctl@v1`. Also: the
+    `/ready` smoke test must NOT use `curl -f` under `set -e` (it would
+    abort before the status check and treat a transient rollout 503 as
+    a hard failure) — use a retry loop capturing the HTTP code with
+    `curl -s`.
 
 ---
 
