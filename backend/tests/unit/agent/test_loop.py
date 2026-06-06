@@ -348,10 +348,11 @@ def test_messages_create_call_has_cache_control_marker(
     assert call["temperature"] == 0.0
     assert call["model"] == DEFAULT_LOOP_SETTINGS.model
     assert call["max_tokens"] == DEFAULT_LOOP_SETTINGS.max_output_tokens
-    # Tool definitions wired through
+    # Tool definitions wired through (all 8)
     tool_names = {t["name"] for t in call["tools"]}
     assert tool_names == {
         "effective_duty_rate", "total_duty_breakdown", "hold_summary",
+        "top_hts_by_duty", "qbr_summary", "compare_customers",
         "query_entries", "lookup_knowledge",
     }
 

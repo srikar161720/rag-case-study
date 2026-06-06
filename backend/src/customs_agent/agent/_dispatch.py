@@ -1,6 +1,6 @@
 """Tool dispatch table for the agent loop.
 
-The 5 tools registered in :data:`customs_agent.tools.TOOL_REGISTRY`
+The 8 tools registered in :data:`customs_agent.tools.TOOL_REGISTRY`
 have heterogeneous dependencies — SQL tools need a DuckDB connection;
 :func:`lookup_knowledge` needs a :class:`HybridRetriever`. This module
 owns the per-tool wrappers that:
@@ -24,6 +24,10 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from customs_agent.tools._shared import ToolResult
+from customs_agent.tools.compare_customers import (
+    CompareCustomersInput,
+    compare_customers,
+)
 from customs_agent.tools.effective_duty_rate import (
     EffectiveDutyRateInput,
     effective_duty_rate,
@@ -36,9 +40,17 @@ from customs_agent.tools.lookup_knowledge import (
     LookupKnowledgeInput,
     lookup_knowledge,
 )
+from customs_agent.tools.qbr_summary import (
+    QbrSummaryInput,
+    qbr_summary,
+)
 from customs_agent.tools.query_entries import (
     QueryEntriesInput,
     query_entries,
+)
+from customs_agent.tools.top_hts_by_duty import (
+    TopHtsByDutyInput,
+    top_hts_by_duty,
 )
 from customs_agent.tools.total_duty_breakdown import (
     TotalDutyBreakdownInput,
@@ -79,12 +91,27 @@ def _exec_query_entries(ctx: "AgentContext", raw_input: dict[str, Any]) -> ToolR
     )
 
 
+def _exec_top_hts_by_duty(ctx: "AgentContext", raw_input: dict[str, Any]) -> ToolResult:
+    inp = TopHtsByDutyInput.model_validate(raw_input)
+    return top_hts_by_duty(ctx.con, inp.filters, inp.limit)
+
+
+def _exec_qbr_summary(ctx: "AgentContext", raw_input: dict[str, Any]) -> ToolResult:
+    inp = QbrSummaryInput.model_validate(raw_input)
+    return qbr_summary(ctx.con, inp.customer_code, inp.period)
+
+
+def _exec_compare_customers(ctx: "AgentContext", raw_input: dict[str, Any]) -> ToolResult:
+    inp = CompareCustomersInput.model_validate(raw_input)
+    return compare_customers(ctx.con, inp.metric, inp.filters)
+
+
 def _exec_lookup_knowledge(ctx: "AgentContext", raw_input: dict[str, Any]) -> ToolResult:
     inp = LookupKnowledgeInput.model_validate(raw_input)
     return lookup_knowledge(ctx.retriever, query=inp.query, top_k=inp.top_k)
 
 
-# Name → handler. Mirrors the 5 entries in TOOL_REGISTRY. Adding a new
+# Name → handler. Mirrors the 8 entries in TOOL_REGISTRY. Adding a new
 # tool requires touching this dict AND TOOL_REGISTRY (intentional —
 # keeps the two layers explicit; mismatches are caught by
 # test_dispatch's "all registered tools dispatch" coverage).
@@ -94,6 +121,9 @@ _DISPATCH: dict[str, _DispatchHandler] = {
     "effective_duty_rate":  _exec_effective_duty_rate,
     "total_duty_breakdown": _exec_total_duty_breakdown,
     "hold_summary":         _exec_hold_summary,
+    "top_hts_by_duty":      _exec_top_hts_by_duty,
+    "qbr_summary":          _exec_qbr_summary,
+    "compare_customers":    _exec_compare_customers,
     "query_entries":        _exec_query_entries,
     "lookup_knowledge":     _exec_lookup_knowledge,
 }

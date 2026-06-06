@@ -15,11 +15,12 @@ what tools exist and how to call them. Each :class:`ToolSpec` carries:
   ``duckdb.DuckDBPyConnection``; ``lookup_knowledge`` takes a retriever.
   The agent loop wires the right deps per tool.
 
-The five tools landing on ``feat/prompts-and-tools`` cover 8 of the 11
-ground-truth questions (Q1, Q2, Q3, Q4, Q5, Q6, Q10, Q11). The remaining
-three specialized tools (``top_hts_by_duty``, ``qbr_summary``,
-``compare_customers``) land on the Day-4 branch
-``feat/remaining-tools-and-eval``.
+All 8 tools are registered: the 5 from ``feat/prompts-and-tools``
+(``effective_duty_rate``, ``total_duty_breakdown``, ``hold_summary``,
+``query_entries``, ``lookup_knowledge``) plus the 3 specialized tools
+added on ``feat/remaining-tools-and-eval`` (``top_hts_by_duty`` → Q8,
+``qbr_summary`` → Q9, ``compare_customers`` → Q7). Together they cover
+all 11 ground-truth questions.
 
 Calling pattern (preview, for ``feat/agent-loop``)::
 
@@ -45,6 +46,13 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from customs_agent.tools.compare_customers import (
+    DESCRIPTION as _COMPARE_CUSTOMERS_DESC,
+)
+from customs_agent.tools.compare_customers import (
+    CompareCustomersInput,
+    compare_customers,
+)
 from customs_agent.tools.effective_duty_rate import (
     DESCRIPTION as _EFFECTIVE_DUTY_RATE_DESC,
 )
@@ -66,12 +74,26 @@ from customs_agent.tools.lookup_knowledge import (
     LookupKnowledgeInput,
     lookup_knowledge,
 )
+from customs_agent.tools.qbr_summary import (
+    DESCRIPTION as _QBR_SUMMARY_DESC,
+)
+from customs_agent.tools.qbr_summary import (
+    QbrSummaryInput,
+    qbr_summary,
+)
 from customs_agent.tools.query_entries import (
     DESCRIPTION as _QUERY_ENTRIES_DESC,
 )
 from customs_agent.tools.query_entries import (
     QueryEntriesInput,
     query_entries,
+)
+from customs_agent.tools.top_hts_by_duty import (
+    DESCRIPTION as _TOP_HTS_BY_DUTY_DESC,
+)
+from customs_agent.tools.top_hts_by_duty import (
+    TopHtsByDutyInput,
+    top_hts_by_duty,
 )
 from customs_agent.tools.total_duty_breakdown import (
     DESCRIPTION as _TOTAL_DUTY_BREAKDOWN_DESC,
@@ -110,6 +132,24 @@ TOOL_REGISTRY: tuple[ToolSpec, ...] = (
         description=_HOLD_SUMMARY_DESC,
         input_model=HoldSummaryInput,
         function=hold_summary,
+    ),
+    ToolSpec(
+        name="top_hts_by_duty",
+        description=_TOP_HTS_BY_DUTY_DESC,
+        input_model=TopHtsByDutyInput,
+        function=top_hts_by_duty,
+    ),
+    ToolSpec(
+        name="qbr_summary",
+        description=_QBR_SUMMARY_DESC,
+        input_model=QbrSummaryInput,
+        function=qbr_summary,
+    ),
+    ToolSpec(
+        name="compare_customers",
+        description=_COMPARE_CUSTOMERS_DESC,
+        input_model=CompareCustomersInput,
+        function=compare_customers,
     ),
     ToolSpec(
         name="query_entries",
@@ -189,10 +229,13 @@ __all__ = [
     "TOOL_REGISTRY",
     "ToolSpec",
     "build_anthropic_tool_def",
+    "compare_customers",
     "effective_duty_rate",
     "format_query_entries_description",
     "hold_summary",
     "lookup_knowledge",
+    "qbr_summary",
     "query_entries",
+    "top_hts_by_duty",
     "total_duty_breakdown",
 ]

@@ -62,13 +62,14 @@ def test_describe_view_unknown_view_raises(
 
 
 @pytest.mark.unit
-def test_build_tool_definitions_returns_five_tools(
+def test_build_tool_definitions_returns_all_tools(
     duckdb_con: duckdb.DuckDBPyConnection,
 ) -> None:
     defs = build_tool_definitions(duckdb_con)
     names = {d["name"] for d in defs}
     assert names == {
         "effective_duty_rate", "total_duty_breakdown", "hold_summary",
+        "top_hts_by_duty", "qbr_summary", "compare_customers",
         "query_entries", "lookup_knowledge",
     }
 
@@ -193,5 +194,5 @@ def test_agent_context_factory_builds_complete_context(
     assert ctx.con is not None
     assert ctx.retriever is not None
     assert ctx.client is not None
-    assert len(ctx.tool_definitions) == 5
+    assert len(ctx.tool_definitions) == 8
     assert len(ctx.always_on_chunk_ids) == 14

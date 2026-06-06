@@ -45,9 +45,10 @@ def test_unknown_tool_raises_with_helpful_message(agent_context_factory) -> None
     msg = str(exc.value)
     assert "not_a_real_tool" in msg
     assert "Registered" in msg
-    # Lists all 5 real tools in the error so the LLM can self-correct
+    # Lists all 8 real tools in the error so the LLM can self-correct
     for tool in (
         "effective_duty_rate", "total_duty_breakdown", "hold_summary",
+        "top_hts_by_duty", "qbr_summary", "compare_customers",
         "query_entries", "lookup_knowledge",
     ):
         assert tool in msg

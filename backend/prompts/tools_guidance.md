@@ -24,17 +24,29 @@ Compute hold rate, on-hold count, hold-reason breakdown, and a status
 classification against the 5% industry benchmark and 8% investigation
 threshold (KB §Hold Rate). Operates on `entries_v`.
 
-### `top_hts_by_duty(filters, limit)` — not available on this branch
-Returns the top `limit` HTS codes by total duty contribution for a
-filtered set. (Lands on a later branch; do not select.)
+### `top_hts_by_duty(filters, limit)`
+Rank HTS codes by total duty contribution (all programs combined:
+primary + Section 301 + IEEPA + MPF + HMF) for the filtered set, returning
+the top `limit` by descending total duty. Each row carries the HTS code,
+description, combined total, per-program components, line count, and
+entered value. Operates on `entry_lines_v` (HTS and origin are line-level).
+Use for "top N HTS codes by duty" questions.
 
-### `compare_customers(metric, filters)` — not available on this branch
-Returns customer rankings by a chosen metric (e.g., `ieepa_pct`).
-(Lands on a later branch; do not select.)
+### `compare_customers(metric, filters)`
+Rank all three customers (MHF / PCA / SAG) by a chosen metric in one
+query — use this instead of calling a per-customer tool three times and
+comparing in prose. Metrics: `ieepa_pct`, `section_301_pct`,
+`effective_duty_rate_pct`, `total_duty`, `total_entered_value`,
+`entry_count`. Operates on `entries_v` (entry grain, capped MPF). Do not
+set a `country_of_origin_code` filter (line-grain; rejected). Use for
+"compare across customers" / "which customer has the highest …" questions.
 
-### `qbr_summary(customer_code, period)` — not available on this branch
-Composes a Quarterly Business Review across the standard 4 sections.
-(Lands on a later branch; do not select.)
+### `qbr_summary(customer_code, period)`
+Compose a mini Quarterly Business Review for one customer over one quarter
+across the 4 standard KB §QBR sections: entry volume by month, total duty
+breakdown by program, top 5 sourcing countries, and hold rate. Pass
+`customer_code` and `period` (e.g. `"2025-Q1"`). Use for "generate a QBR" /
+"quarterly summary" questions.
 
 ## Layer 2 — General builder
 

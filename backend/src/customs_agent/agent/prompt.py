@@ -29,7 +29,7 @@ Bumping discipline (per CLAUDE.md):
 from functools import cache
 from pathlib import Path
 
-PROMPT_VERSION: str = "1.1.0"
+PROMPT_VERSION: str = "1.2.0"
 """Bump on any edit to a file under ``backend/prompts/``. Rotates the
 Anthropic prompt cache deliberately when prompts actually change.
 
@@ -39,6 +39,10 @@ History:
 - ``1.1.0`` — ``scope.md`` gains the "Internal refusal marker rule"
   section paired with the new ``agent/refusal.py`` detector on
   ``feat/agent-loop``.
+- ``1.2.0`` — ``tools_guidance.md`` finalizes the 3 specialized tools
+  (``top_hts_by_duty``, ``qbr_summary``, ``compare_customers``),
+  replacing their "not available on this branch" placeholders on
+  ``feat/remaining-tools-and-eval``.
 """
 
 # Project layout: backend/src/customs_agent/agent/prompt.py
