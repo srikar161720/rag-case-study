@@ -144,39 +144,93 @@ def _extract_final_text(response: Any) -> str:
     return "".join(parts)
 
 
-def _build_citations(retrieved: list[Any]) -> list[Citation]:
-    """Assemble Citation objects from the retrieved chunks.
+def _snippet_from_text(body: str) -> str:
+    """Bounded hover-preview snippet, stripping the chunker's
+    DOCUMENT/SECTION enrichment prefix so the preview reads naturally
+    (same intent as always_on._extract_body, inline + length-capped)."""
+    if body.startswith("DOCUMENT:"):
+        parts = body.split("\n", 3)
+        if len(parts) >= 4:
+            body = parts[3]
+    snippet = body[:200].rstrip()
+    if len(body) > 200:
+        snippet += "…"
+    return snippet
 
-    Citation IDs run 1..N matching the order the retriever returned them
-    (RRF-fused order). Snippet is the first ~200 chars of the chunk
-    text — enough for a hover preview in the UI, short enough to keep
-    the response payload tight.
+
+def _build_citations(
+    retrieved: list[Any],
+    tool_call_history: list[tuple[Any, Any]],
+) -> list[Citation]:
+    """Assemble ``knowledge_citations[]`` from real history (Fork 28).
+
+    Per Fork 28 the backend builds citations from real retrieval AND
+    tool-call history. Three sources are merged, deduplicated by
+    ``chunk_id`` (first occurrence wins), and assigned sequential IDs
+    1..N so they share one ``[N]`` namespace with ``tool_calls`` (which
+    continue from N+1):
+
+    1. **RAG retrieval** — the top-K hybrid hits injected below the cache
+       boundary (already minus the always-on block, deduped upstream).
+    2. **Invoked tools' declared citations** — each specialized tool
+       declares the KB rules/quirks/metrics its computation relies on
+       (``ToolResult.citations``). These ground the *computational*
+       answers (Q4-Q9) even when the chunk is an always-on rule that was
+       deduped out of retrieval — the tool's logic genuinely depends on
+       it. Snippet is left empty here (the tool declares only doc /
+       section / chunk_id); a later branch can enrich it.
+    3. **``lookup_knowledge`` returned chunks** — that tool declares no
+       citations because the chunks it returns *are* the citations; we
+       convert each returned chunk into a Citation with a real snippet.
     """
-    citations: list[Citation] = []
-    for i, rc in enumerate(retrieved, start=1):
+    seen: dict[str, tuple[str, str, str]] = {}  # chunk_id -> (doc, section, snippet)
+
+    def _add(chunk_id: str, doc: str, section: str, snippet: str) -> None:
+        if chunk_id not in seen:
+            seen[chunk_id] = (doc, section, snippet)
+
+    # 1. RAG retrieval (RRF-fused order).
+    for rc in retrieved:
         chunk = rc.chunk
-        # Strip the chunker's DOCUMENT/SECTION enrichment prefix from the
-        # snippet so the preview reads naturally; same logic as
-        # always_on._extract_body but inline + bounded.
-        body = chunk.text
-        if body.startswith("DOCUMENT:"):
-            parts = body.split("\n", 3)
-            if len(parts) >= 4:
-                body = parts[3]
-        snippet = body[:200].rstrip()
-        if len(body) > 200:
-            snippet += "…"
-        citations.append(
-            Citation(
-                id=i,
-                kind="knowledge",
-                doc=chunk.doc,
-                section=f"{chunk.section_id} {chunk.section_title}",
-                chunk_id=chunk.chunk_id,
-                snippet=snippet,
-            )
+        _add(
+            chunk.chunk_id,
+            chunk.doc,
+            f"{chunk.section_id} {chunk.section_title}",
+            _snippet_from_text(chunk.text),
         )
-    return citations
+
+    # 2 + 3. Tool-call history, in call order.
+    for _block, result in tool_call_history:
+        if result.meta.tool_name == "lookup_knowledge":
+            data = result.data
+            if isinstance(data, list):
+                for item in data:
+                    if isinstance(item, dict) and item.get("chunk_id"):
+                        section = (
+                            f"{item.get('section_id', '')} "
+                            f"{item.get('section_title', '')}"
+                        ).strip()
+                        _add(
+                            item["chunk_id"],
+                            item.get("doc", ""),
+                            section,
+                            _snippet_from_text(item.get("text", "")),
+                        )
+        else:
+            for cit in result.citations:
+                _add(cit.chunk_id, cit.doc, cit.section, "")
+
+    return [
+        Citation(
+            id=i,
+            kind="knowledge",
+            doc=doc,
+            section=section,
+            chunk_id=chunk_id,
+            snippet=snippet,
+        )
+        for i, (chunk_id, (doc, section, snippet)) in enumerate(seen.items(), start=1)
+    ]
 
 
 def _build_tool_call_traces(
@@ -411,8 +465,11 @@ def run_agent(
     category, prose = detect_refusal(final_text)
     refused = category is not None
 
-    # 8. Build sidecar
-    citations = _build_citations(retrieved) if not refused else []
+    # 8. Build sidecar — citations from real retrieval AND tool-call
+    #    history (Fork 28); tool_calls continue the shared [N] namespace.
+    citations = (
+        _build_citations(retrieved, tool_call_history) if not refused else []
+    )
     tool_call_traces = (
         _build_tool_call_traces(tool_call_history, starting_id=len(citations) + 1)
         if not refused else []
