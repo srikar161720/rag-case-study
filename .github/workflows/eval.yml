@@ -1,33 +1,150 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Eval workflow — PLACEHOLDER
+# Eval — real-LLM evaluation against ground_truth.json (Fork 44 + Fork 46).
 #
-# Triggers `workflow_dispatch` only for now to avoid surprise billing — the
-# real workflow consumes LLM credits on every run. Real triggers + job land
-# on the `feat/remaining-tools-and-eval` branch (Day 4) per PROGRESS.md.
+# Costs LLM credits, so it runs sparingly:
+#   - PRs that touch agent behavior (paths below) — opened / synchronize / reopened
+#   - PRs (re)labeled `eval-on-pr` — explicit opt-in re-run (the `if` gate)
+#   - nightly cron 05:00 UTC — catches provider-side model drift on main
+#   - manual workflow_dispatch
 #
-# Planned triggers (see context/08-cicd-and-testing.md):
-#   - path-triggered: prompts/, tools/, agent/, rag/, data/ changes on PR
-#   - nightly: cron at 05:00 UTC
-#   - manual: workflow_dispatch
-#   - label-based: pull_request labeled `eval-on-pr`
-#
-# Planned steps:
-#   - Build the RAG index (content-hash cache key)
-#   - Run pytest tests/eval/ against ground_truth.json via real Anthropic + OpenAI calls
-#   - Post results as a PR comment; on nightly failure, auto-open an issue
+# A content-hash cache keyed on the eval-relevant files skips the LLM spend
+# when nothing affecting the result changed. The suite itself SKIPS (never
+# fails) unless real ANTHROPIC_API_KEY + OPENAI_API_KEY are present, so a
+# fork without secrets won't error. See context/08-cicd-and-testing.md.
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: Eval
 
 on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, labeled]
+    paths:
+      - "backend/prompts/**"
+      - "backend/src/customs_agent/agent/**"
+      - "backend/src/customs_agent/tools/**"
+      - "backend/src/customs_agent/rag/**"
+      - "backend/src/customs_agent/data/**"
+      - "backend/scripts/build_index.py"
+      - "backend/tests/ground_truth.py"
+      - "backend/tests/ground_truth.json"
+      - "backend/tests/eval/**"
+      - "backend/pyproject.toml"
+  schedule:
+    - cron: "0 5 * * *"
   workflow_dispatch:
 
+concurrency:
+  group: eval-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
 jobs:
-  placeholder:
-    name: Placeholder
+  eval:
+    # A bare (re)label with some OTHER label shouldn't burn credits; only the
+    # `eval-on-pr` label opts in. Path-triggered PR events (opened/synchronize/
+    # reopened), nightly, and manual runs always proceed.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.action != 'labeled' ||
+      github.event.label.name == 'eval-on-pr'
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     steps:
-      - name: Announce placeholder status
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+
+      # Hash everything that can change the eval OUTPUT (agent code, prompts,
+      # RAG, data, the grader, the answer key, deps) so an unchanged branch
+      # reuses the prior result instead of re-spending LLM credits. Generated
+      # files (.last-result.json / REPORT.md) are excluded by restricting the
+      # tests/eval scan to *.py.
+      - name: Compute content hash for cache key
+        id: hash
         run: |
-          echo "::notice::Placeholder eval workflow — real jobs land on feat/remaining-tools-and-eval (Day 4)."
-          echo "See context/08-cicd-and-testing.md for the planned trigger matrix and job spec."
+          HASH=$( ( \
+            find prompts src/customs_agent/agent src/customs_agent/tools \
+                       src/customs_agent/rag src/customs_agent/data \
+                 -type f \( -name '*.py' -o -name '*.md' \) | sort | xargs sha256sum; \
+            find tests/eval -type f -name '*.py' | sort | xargs sha256sum; \
+            sha256sum tests/ground_truth.py tests/ground_truth.json pyproject.toml uv.lock \
+          ) | sha256sum | cut -d' ' -f1 )
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Restore eval cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          key: eval-result-${{ steps.hash.outputs.hash }}
+          path: backend/tests/eval/.last-result.json
+
+      - name: Build RAG index
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          uv run python scripts/build_index.py \
+            --out-chroma ./chroma_db \
+            --out-bm25 ./bm25.pkl \
+            --out-manifest ./manifest.json
+
+      - name: Run real-LLM eval
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_HOST: https://us.cloud.langfuse.com
+        run: uv run pytest tests/eval -v --junitxml=tests/eval/.junit.xml
+
+      - name: Comment results on PR
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = 'backend/tests/eval/REPORT.md';
+            if (!fs.existsSync(path)) {
+              core.info('No REPORT.md (cache hit or eval skipped) — nothing to comment.');
+              return;
+            }
+            const report = fs.readFileSync(path, 'utf8');
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: report,
+            });
+
+      - name: Upload eval artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: backend/tests/eval/
+          if-no-files-found: ignore
+
+      - name: Open issue on nightly failure
+        if: ${{ failure() && github.event_name == 'schedule' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Nightly eval failed ${new Date().toISOString().split('T')[0]}`,
+              labels: ['eval-failure', 'drift'],
+              body: 'Nightly eval regression on main. See the workflow run for details. '
+                + 'Since main did not change, this likely indicates provider-side model '
+                + 'drift (a Sonnet 4-6 snapshot rotation) rather than a repo regression.',
+            });

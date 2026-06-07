@@ -1,12 +1,12 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # CI — lint, typecheck, test, secret-scan on every PR + push to main.
 #
-# Scope (per PROGRESS.md `chore/ci-cd`): three jobs — backend, frontend,
-# secret-scan. Two more jobs from the full spec land on later branches once
-# their prerequisite files exist:
+# Scope: four jobs — backend, frontend, secret-scan, and the advisory
+# evaluation-freshness check (added on feat/remaining-tools-and-eval). One
+# more job lands on a later branch once its prerequisite files exist:
 #   - api-contract (G3, openapi.json ↔ api-types.ts drift) → feat/api-contract
-#   - evaluation-freshness (PROMPT_VERSION vs EVALUATION.md) → feat/remaining-tools-and-eval
-# The real-LLM eval lives in its own workflow (eval.yml), also a later branch.
+# The real-LLM eval lives in its own workflow (eval.yml). evaluation-freshness
+# is advisory (continue-on-error, warnings only) — NOT a required status check.
 #
 # The frontend job needs no secrets. The backend job needs OPENAI_API_KEY: its
 # integration tests boot the full FastAPI app, whose lifespan loads the RAG index
@@ -100,3 +100,28 @@ jobs:
           # GITLEAKS_LICENSE is only required for organization repos, not this
           # user-account repo, so it's intentionally omitted.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  evaluation-freshness:
+    # Advisory only (G5): warns when EVALUATION.md was generated under an older
+    # PROMPT_VERSION than the current code, so a stale snapshot doesn't ship.
+    # continue-on-error + warning annotations only — never blocks a merge, and
+    # is intentionally NOT in branch protection's required checks. The real
+    # regeneration is user-invoked (`make eval-md`); this is just the nudge.
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare PROMPT_VERSION (code vs EVALUATION.md)
+        run: |
+          CURRENT=$(grep -oP '^PROMPT_VERSION[^=]*=\s*"\K[^"]+' \
+            backend/src/customs_agent/agent/prompt.py | head -1 || echo "unknown")
+          if [ ! -f EVALUATION.md ]; then
+            echo "::warning::EVALUATION.md not found — generate it before submission: make eval-md (current PROMPT_VERSION=$CURRENT)"
+            exit 0
+          fi
+          COMMITTED=$(grep -oP '`PROMPT_VERSION`[^`]*`\K[^`]+' EVALUATION.md | head -1 || echo "unknown")
+          echo "code PROMPT_VERSION=$CURRENT · EVALUATION.md PROMPT_VERSION=$COMMITTED"
+          if [ "$CURRENT" != "$COMMITTED" ]; then
+            echo "::warning::EVALUATION.md was generated under PROMPT_VERSION $COMMITTED but the code is at $CURRENT. Regenerate before submission: make eval-md"
+          fi
