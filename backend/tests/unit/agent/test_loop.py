@@ -288,7 +288,16 @@ def test_hallucinated_marker_stripped_from_prose(agent_context_factory) -> None:
 @pytest.mark.unit
 def test_sidecar_ids_unique_and_share_namespace(agent_context_factory) -> None:
     """Citations get IDs 1..N; tool_calls get N+1..N+M — every ID
-    appears at most once across both arrays."""
+    appears at most once across both arrays.
+
+    Under Fork 28's full citation assembly (Option A), ``knowledge_citations``
+    merges RAG retrieval with each invoked tool's declared citations: the
+    two retrieved chunks (hts_format, qbr_structure) plus the four chunks
+    hold_summary + effective_duty_rate declare (metric_hold_rate_benchmark,
+    rule_6_on_hold_entries, rule_3_duty_spend_aggregation,
+    metric_effective_duty_rate) = 6 citations, with the 2 tool_calls
+    continuing the namespace at 7-8.
+    """
     all_chunks = parse_chunks()
     chunks_to_use = [
         c for c in all_chunks
@@ -306,8 +315,21 @@ def test_sidecar_ids_unique_and_share_namespace(agent_context_factory) -> None:
     tool_call_ids = [t.id for t in resp.tool_calls]
     all_ids = citation_ids + tool_call_ids
     assert len(all_ids) == len(set(all_ids)), "IDs must be unique"
-    assert set(citation_ids) == {1, 2}
-    assert set(tool_call_ids) == {3, 4}
+
+    # Citations are a contiguous 1..N range; tool_calls continue N+1..N+M.
+    n_cit = len(citation_ids)
+    assert citation_ids == list(range(1, n_cit + 1))
+    assert tool_call_ids == list(range(n_cit + 1, n_cit + 1 + len(tool_call_ids)))
+
+    # Merge surfaces the 2 retrieved chunks + the 4 tool-declared chunks.
+    cited = {c.chunk_id for c in resp.knowledge_citations}
+    assert {"hts_format_xxxx_xx_xxxx", "qbr_structure"} <= cited
+    assert {
+        "metric_hold_rate_benchmark", "rule_6_on_hold_entries",
+        "rule_3_duty_spend_aggregation", "metric_effective_duty_rate",
+    } <= cited
+    assert len(resp.knowledge_citations) == 6
+    assert len(resp.tool_calls) == 2
 
 
 @pytest.mark.unit
