@@ -810,6 +810,25 @@ Citations available: [1] qbr_metric_hold_rate, [2] rule_6_on_hold
 The LLM emits prose referencing those IDs. The backend then assembles
 the final sidecar with the matching citation entries.
 
+> **As-built note (`feat/remaining-tools-and-eval`, "Option A")**: the
+> `_build_citations` half of this is now implemented.
+> `agent/loop.py:_build_citations(retrieved, tool_call_history)` builds
+> `knowledge_citations[]` by merging three real-history sources, deduped
+> by `chunk_id`, with sequential IDs (1..N) that continue into
+> `tool_calls[]` (N+1..): (1) RAG-retrieved chunks (already minus the
+> always-on block per the step-2 dedup), (2) each invoked tool's declared
+> `ToolResult.citations` — this activates what was previously dead code and
+> surfaces the always-on rules/quirks/metrics a tool's computation relies
+> on (e.g. `quirk_1` via `total_duty_breakdown`), and (3) the chunks
+> `lookup_knowledge` returns (it declares none of its own — the returned
+> chunks ARE the citations). Citation CONTENT stays backend-authored, so
+> the split-authorship anti-hallucination property holds. The OTHER half
+> above — announcing `Citations available: [N] …` to the LLM inside
+> `tool_result` content so its `[N]` markers align — is **deferred to
+> `feat/citations-panel`** (Day 5); until then the LLM places `[N]` markers
+> loosely and the Fork-28 marker validator strips orphans. See CLAUDE.md
+> Critical Gotcha #25.
+
 ---
 
 ## Determinism (Fork 26)

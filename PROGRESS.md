@@ -6,12 +6,12 @@ Phase checklist + session log for the Customs Analytics Agent build.
 
 ## Current Status
 
-- **Phase**: **Day 3 fully complete — the demo is live and end-to-end.** All four Day-3 branches shipped this session (`chore/dockerfile-fly`, `feat/web-mvp`, `chore/ci-cd`) plus the previously-merged `feat/fastapi-backend`. Backend containerized + deployed to Fly (`https://customs-agent-backend.fly.dev`); Next.js frontend deployed to Vercel (publicly reachable); CI + automated deploy-on-merge live. Backend test suite steady at **356 tests** (hermetic; CI builds the RAG index before the integration suite).
+- **Phase**: **Day 4 in progress — `feat/remaining-tools-and-eval` merged (1st of 3 Day-4 branches).** The 8-tool surface is complete (`top_hts_by_duty`, `qbr_summary`, `compare_customers` added → all 11 graded questions servable); the Fork-28 citation assembly is finished ("Option A" — the loop merges RAG + tool-declared + `lookup_knowledge` citations); the real-LLM eval suite is live (`tests/eval/` + `eval.yml` path/label/nightly/manual) with two-axis grading (Fork 46) + the Q9 judge; the `EVALUATION.md` generator (G5) and the advisory `evaluation-freshness` CI check shipped. `PROMPT_VERSION` 1.1.0 → 1.2.0 (tools_guidance finalized). Backend test suite **356 → 424** (hermetic unit + integration; the real-LLM eval skips cleanly without keys).
 - **Current branch**: `main` (clean; admin sweep in progress)
-- **Last PR merged**: `fix/deploy-dockerfile-path` (the 2nd post-merge deploy hotfix) — preceded this session by `chore/dockerfile-fly`, `feat/web-mvp` (PR #11), `chore/ci-cd` (PR #12), and `fix/deploy-flyctl-tag`.
-- **Last session**: 2026-06-02 — Day 3 close: containerize + Fly deploy + web MVP + CI/CD + live demo (4 feature branches + 2 deploy hotfixes + 2 rounds of Copilot review fixes)
-- **Days elapsed / remaining**: 3 / 4
-- **Blockers**: None. **Live demo URLs**: backend `https://customs-agent-backend.fly.dev` (`/health`, `/ready`, `/docs`); frontend on Vercel (Deployment Protection disabled so the demo link is public). Next: Day 4 — `feat/remaining-tools-and-eval` (3 more tools + eval suite + `eval.yml` + EVALUATION.md generator), `feat/observability-base` (structured logging), `feat/api-contract` (OpenAPI snapshot + frontend codegen + the deferred `api-contract` CI job).
+- **Last PR merged**: `feat/remaining-tools-and-eval` (PR #15) — 6 commits: 3 tools, Fork-28 citation assembly, real-LLM eval suite, `eval.yml` + freshness + generator, the CRLF `fix(data)` (Gotcha #24), and the post-review bundle (grader false-failure fixes + the 7 Copilot comments).
+- **Last session**: 2026-06-07 — Day 4 part 1: remaining tools + real-LLM eval suite + `eval.yml` + EVALUATION.md generator, then post-merge CRLF + grader + Copilot-review fixes.
+- **Days elapsed / remaining**: ~4 / ~3 (Day 4 underway; `feat/observability-base` + `feat/api-contract` remain before Day 5)
+- **Blockers**: None. **Live demo URLs**: backend `https://customs-agent-backend.fly.dev` (`/health`, `/ready`, `/docs`); frontend on Vercel (publicly reachable). **Eval status**: 11/11 graded + 5/5 out-of-scope expected green on the next `eval.yml` run — the 4 prior FAILs were grader bugs (since fixed); the agent answered all correctly (Q11 confirmed against the live backend). Next: `feat/observability-base` (structured logging, replacing the interim `api/_request_id.py`), then `feat/api-contract` (OpenAPI snapshot + frontend `api-types.ts` codegen + the deferred `api-contract` CI job).
 
 ---
 
@@ -142,14 +142,14 @@ branch (and therefore one PR). The branch list below maps 1:1 to the planned
 
 #### Branch: `feat/remaining-tools-and-eval`
 
-- [ ] Specialized tools (Day 4 set): `top_hts_by_duty.py`, `qbr_summary.py`, `compare_customers.py` (Fork 22)
-- [ ] `backend/tests/eval/_grading.py` — tier-hybrid grading with Q9 LLM-as-judge (Fork 46)
-- [ ] `backend/tests/integration/stub_llm.py` + agent-loop integration tests (Fork 45 Layer 2)
-- [ ] `.github/workflows/eval.yml` — path-triggered + nightly + manual + label-based; content-hash cache; nightly drift-issue auto-open (Fork 44)
-- [ ] `backend/tests/eval/test_questions.py` parametrized over `ground_truth.json`
-- [ ] `backend/tests/eval/test_out_of_scope.py` — 5 refusal robustness cases (Fork 25)
-- [ ] `backend/scripts/generate_evaluation_md.py` — EVALUATION.md generator with full header (G5)
-- [ ] `evaluation-freshness` advisory CI check (PROMPT_VERSION drift warning, non-blocking)
+- [x] Specialized tools (Day 4 set): `top_hts_by_duty.py`, `qbr_summary.py`, `compare_customers.py` (Fork 22) _(each replicates its ground-truth SQL formula exactly — explicit 5-component duty sum, `ANY_VALUE(hts_description)` grouping, SQL-computed percentages via a CTE mirroring `q7`; `qbr_summary` composes the existing `query_entries`/`total_duty_breakdown`/`hold_summary` functions. Wired into `TOOL_REGISTRY` + `_dispatch.py` (5→8). `tools_guidance.md` finalized → `PROMPT_VERSION` 1.1.0→1.2.0 + snapshot refresh. `compare_customers` input-validator rejects both `country_of_origin_code` AND `customer_code`. Verified byte-identical to ground truth for Q7/Q8/Q9.)_
+- [x] `backend/tests/eval/_grading.py` — tier-hybrid grading with Q9 LLM-as-judge (Fork 46) _(two-axis: correctness must-pass [refused + numeric tolerance + phrases + citations, citations satisfied via `knowledge_citations[]` ∪ always-on] + architecture warn-only [expected tool + args partial-match]; numbers read structurally from `tool_calls[].result`; `_report.py` emits the compact PR-comment report; **post-review grader fixes**: Decimal-vs-str label guard + view-aware `line_count` extraction — see Gotcha #26.)_
+- [x] `backend/tests/integration/stub_llm.py` + agent-loop integration tests (Fork 45 Layer 2) _(ergonomic `ToolUseTurn`/`TextTurn`/`build_stub_client` over `_fakes.FakeAnthropicClient`; `test_agent_loop.py` drives the real loop with real tools + DuckDB + fake retriever for the 3 new tools + all 3 citation-merge paths; `FakeRetriever` hoisted to `_fakes.py`.)_
+- [x] `.github/workflows/eval.yml` — path-triggered + nightly + manual + label-based; content-hash cache; nightly drift-issue auto-open (Fork 44) _(single valid `pull_request` trigger [paths + `types:[…,labeled]`] + `if`-gate; secrets-present gate so forks skip cleanly; sticky PR comment [find-and-update by marker]; content hash includes `tests/eval/*.py`.)_
+- [x] `backend/tests/eval/test_questions.py` parametrized over `ground_truth.json` _(skips cleanly without real keys/index; record now captures per-tool-call summaries so failures are self-diagnosing.)_
+- [x] `backend/tests/eval/test_out_of_scope.py` — 5 refusal robustness cases (Fork 25) _(4 refusals + 1 in-scope meta; all 5/5 passed on the first real run.)_
+- [x] `backend/scripts/generate_evaluation_md.py` — EVALUATION.md generator with full header (G5) _(httpx → deployed `/chat`; reuses the grader incl. Q9 judge; pure markdown-assembly functions unit-tested. User-invoked only — never run by Claude. `EVALUATION.md` itself is generated on Day 7 / pre-submission.)_
+- [x] `evaluation-freshness` advisory CI check (PROMPT_VERSION drift warning, non-blocking) _(in `ci.yml`, `continue-on-error`, PR-only; corrected grep patterns vs the spec snapshot — handles the typed `PROMPT_VERSION: str = "…"` assignment and the backtick table cell.)_
 
 #### Branch: `feat/observability-base`
 
@@ -302,6 +302,22 @@ branch (and therefore one PR). The branch list below maps 1:1 to the planned
 - **Decisions / surprises**: <only if non-routine — design changes, scope shifts, blockers, dep surprises>
 - **Next session**: <1 line — next branch or checklist item to start>
 ```
+
+---
+
+### 2026-06-07 — Day 4 part 1: remaining tools + real-LLM eval suite
+
+- **Branch(es) touched**: `feat/remaining-tools-and-eval`, `main` (admin sweep).
+- **PRs**: merged 1 — `feat/remaining-tools-and-eval` (PR #15; 6 commits: 3 tools, Fork-28 citation assembly, eval suite, `eval.yml`+freshness+generator, the CRLF `fix(data)`, and the post-review grader/Copilot bundle).
+- **Progress**: Closed all 8 `feat/remaining-tools-and-eval` checklist items. Added the final 3 specialized tools (`top_hts_by_duty`/`qbr_summary`/`compare_customers`) → 8-tool surface, all 11 graded questions servable (`PROMPT_VERSION` 1.1.0→1.2.0 + snapshot). Completed the Fork-28 citation assembly ("Option A"). Stood up the real-LLM eval suite (`tests/eval/` two-axis grader + Q9 judge + 5 refusal cases), the `eval.yml` workflow (path/label/nightly/manual + content-hash cache + sticky PR comment + secrets gate), the `EVALUATION.md` generator (G5), and the advisory `evaluation-freshness` CI check. Backend suite 356 → 424 (hermetic; real-LLM eval skips without keys). First real `eval.yml` run after merge: **5/5 out-of-scope + 7/11 graded green; the 4 "failures" were all grader bugs (since fixed) — the agent answered every question correctly**.
+- **Decisions / surprises**:
+  - **Option A — completed the Fork-28 citation assembly (spec-drift discovery, confirmed with the user before implementing).** The as-built loop built `knowledge_citations[]` from RAG retrieval ONLY, leaving every tool's declared `ToolResult.citations` as dead code and the always-on rules/quirks/metrics absent from the sidecar. Chose (over a grader-only workaround) to finish Fork 28: the loop now merges RAG ∪ invoked-tool citations ∪ `lookup_knowledge` chunks (deduped by `chunk_id`, shared `[N]` space). Spec-faithful, makes the sidecar + EVALUATION.md grounding real, strengthens 4 of 5 rubric dimensions + the citation bonus. New CLAUDE.md Gotcha #25; as-built note in `context/04`. (The "announce `[N]` ids to the LLM" half is deferred to `feat/citations-panel`, Day 5.)
+  - **Dataset CSV CRLF / `*.csv binary` (data-drift discovery; new Gotcha #24).** The first CI eval ERRORed all 16 cases at the Fork-43 SHA guard (~17s, before any LLM call): the CSV blob was LF-normalized (committed under `* text=auto` before the `*.csv binary` rule was added) while `ground_truth.json` pinned the CRLF working-tree SHA. Fixed via `git add --renormalize` so the blob stores the CRLF bytes the pin targets — no answer-key change. As-built note in `context/02`.
+  - **All 4 eval grader FAILs were grader bugs, not agent errors (new Gotcha #26).** (a) `ground_truth.json` serializes Decimals as strings → the string-label check compared `Decimal == str` and always failed (Q2/Q4/Q5); fixed to only label-check true `str` actuals. (b) `_extract_scalar` first-match grabbed a redundant `count_lines`-on-`entries_v` (68) over the `entry_lines_v` line count (232) for Q11; fixed with view-aware extraction. Confirmed agent correctness for Q11 by calling the deployed `/chat` directly (it queried both views and answered 68 entries / 232 lines / 164 difference). Both guarded by new `tests/unit/eval/test_grading.py` regressions; the eval record now captures per-tool-call summaries.
+  - **Copilot PR #15 review — 7 comments, all addressed.** Two judgment calls went **Option B**: compute `compare_customers` percentages in SQL (a CTE mirroring `q7`, consistent with `effective_duty_rate`/`hold_summary`) and a sticky eval PR comment (find-and-update vs. one-per-run accumulation). Plus: reject `customer_code` in the validator, an `int(limit)` SQL guard, and secrets-gating `eval.yml`. Also corrected two buggy `grep` patterns the spec snapshot would have given `evaluation-freshness` (the typed `PROMPT_VERSION: str = "…"` assignment + the greedy backtick cell).
+  - **Branch protection**: `evaluation-freshness` stays advisory (NOT a required check); required checks remain `backend`/`frontend`/`secret-scan` (`api-contract` joins them when `feat/api-contract` lands).
+  - **`EVALUATION.md` itself is NOT generated yet** — by design it's a Day-7 / pre-submission snapshot (`make eval-md` against the deployed backend, user-invoked per G5). The generator + the advisory freshness check shipped this session; the file lands later.
+- **Next session**: `feat/observability-base` (structlog dev/prod renderer split + secret-shape scrubber + request-logging middleware replacing the interim `api/_request_id.py`), then `feat/api-contract` (OpenAPI snapshot + frontend `api-types.ts` codegen + the `api-contract` CI job → then add it to branch-protection required checks).
 
 ---
 

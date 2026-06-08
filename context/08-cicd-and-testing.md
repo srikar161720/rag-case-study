@@ -298,6 +298,33 @@ def _run_rubric_judge(question, response) -> Check:
 **Pass threshold ≥ 3/4** — one minor omission shouldn't fail an
 otherwise-correct QBR.
 
+### Grader as-built notes (`feat/remaining-tools-and-eval`)
+
+The shipped grader (`tests/eval/_grading.py`) reads numeric answers
+**structurally from `ChatResponse.tool_calls[].result`** (never parsed
+from prose) and resolves citations against `knowledge_citations[]` ∪ the
+always-on chunk set. Two robustness fixes landed after the first real
+`eval.yml` run surfaced grader-only false-failures (all guarded by new
+`tests/unit/eval/test_grading.py` regressions — see CLAUDE.md Gotcha #26):
+
+- **Decimals serialize as JSON strings.** `ground_truth.json` stores
+  `Decimal` money as strings (`"59949493.45"`) while tools return real
+  `Decimal`s. The grader compares them NUMERICALLY via the tolerance loop;
+  the string-label check fires only when the *actual* value is itself a
+  `str` (true labels like port code / status), so Decimal money is never
+  compared `Decimal == str` (which had masked correct Q2/Q4/Q5).
+- **`line_count` is grain-sensitive.** `count_lines` (`COUNT(*)`) is the
+  true tariff-line count only on `entry_lines_v`; on `entries_v` it counts
+  entries. `_extract_scalar(..., prefer_view="entry_lines_v")` reads the
+  grain-correct value so a redundant `count_lines`-on-`entries_v` call
+  can't shadow it (Q11).
+
+The eval record (and `REPORT.md`) capture a per-tool-call summary
+(name / view / args / result) so a failing question is self-diagnosing from
+the report alone. `_report.py` writes the compact PR-comment report +
+`.last-result.json` cache; the full submission-grade `EVALUATION.md` is a
+separate artifact from `scripts/generate_evaluation_md.py` (G5).
+
 ---
 
 ## CI Workflow: `ci.yml`
@@ -442,6 +469,28 @@ jobs:
 ---
 
 ## CI Workflow: `eval.yml`
+
+> **As-built note (`feat/remaining-tools-and-eval`)**: the YAML below is the
+> planning sketch; the shipped `eval.yml` differs in a few ways (all verified
+> against current GitHub Actions docs via Context7):
+> - **Single valid `pull_request` trigger** — the sketch's two `pull_request:`
+>   keys are invalid YAML (duplicate key, second wins). Shipped: one
+>   `pull_request` with `types: [opened, synchronize, reopened, labeled]` +
+>   `paths`, and a job-level `if` that gates the `labeled` action to the
+>   `eval-on-pr` label (path/synchronize/nightly/manual always proceed).
+> - **Secrets-present gate** — a `Check eval secrets are present` step sets a
+>   step output; the build-index + eval steps gate on
+>   `&& steps.secrets.outputs.present == 'true'` so forks / unconfigured repos
+>   skip cleanly instead of failing at `build_index.py` with an empty key (the
+>   "skips cleanly" promise otherwise only held at the pytest layer). Job-level
+>   `permissions: { issues: write, pull-requests: write }`.
+> - **Sticky PR comment** — instead of `createComment` per run (which would
+>   accumulate one comment per run), the comment step finds a prior comment by
+>   a hidden `<!-- customs-eval-report -->` marker and `updateComment`s it in
+>   place, else creates it; on a cache hit (no `REPORT.md`) it no-ops (the
+>   existing comment already reflects that content-hash).
+> - **Content hash** also covers `tests/eval/*.py` (the grader); `setup-uv@v6`
+>   + `uv sync --locked` match `ci.yml`.
 
 ```yaml
 # .github/workflows/eval.yml — real-LLM evaluation

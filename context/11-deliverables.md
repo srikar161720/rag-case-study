@@ -364,6 +364,16 @@ the configured `BACKEND_URL`, applies Fork 46 grading, runs the Q9
 rubric judge, and emits Markdown matching the template above.
 Implementation responsibilities are in `08-cicd-and-testing.md`.
 
+> **As-built note (`feat/remaining-tools-and-eval`)**: the generator
+> shipped this branch — it POSTs each question to the deployed `/chat`
+> via `httpx`, reuses the eval suite's grader (`tests/eval/_grading.py`,
+> incl. the Q9 judge), and per-question grading is wrapped so a judge /
+> network hiccup can't lose the whole file. Its pure markdown-assembly
+> functions are unit-tested (`tests/unit/eval/test_generate_evaluation_md.py`,
+> no network). **`EVALUATION.md` itself is NOT generated yet** — by design
+> it's a Day-7 / pre-submission snapshot (regenerated within ~24h of
+> submission for trace-link freshness per Fork 53).
+
 **Claude must NEVER run `make eval-md`** — the user invokes it
 manually before submission (per G5). The generator emits to stdout;
 the user redirects to `EVALUATION.md` and commits.

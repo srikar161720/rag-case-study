@@ -534,6 +534,21 @@ def ground_truth():
     return gt
 ```
 
+> **As-built note (`feat/remaining-tools-and-eval`)**: the pin is over the
+> CSV's **byte-exact** content, so the CSV MUST stay `*.csv binary` (it is,
+> in root `.gitattributes`) to keep the committed blob identical to the
+> working tree. The CSV was first committed while `* text=auto` was the
+> effective rule (before the `*.csv binary` line was added), so its blob
+> was LF-normalized while the local working tree kept CRLF — the pin was
+> generated against the CRLF bytes (`1d6df8…`), but a fresh CI checkout got
+> the LF blob (`b9626d…`), so the guard above ERRORed all 16 eval cases
+> (~17s, before any LLM call) on the first real `eval.yml` run. Resolved
+> with `git add --renormalize backend/data/customs_entries_oct2024_mar2025.csv`
+> so the blob honors `*.csv binary` and stores the CRLF bytes the pin
+> targets — **no `ground_truth.json` change** (the data is byte-identical;
+> only the line-ending representation was being pinned). Never let the CSV
+> be text-normalized. See CLAUDE.md Critical Gotcha #24.
+
 ### When to regenerate
 
 | Trigger | Regenerate? |

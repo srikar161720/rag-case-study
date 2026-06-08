@@ -209,7 +209,7 @@ rag-case-study/
 │   └── setup.sh                    ← interactive first-time setup
 ├── .github/workflows/
 │   ├── ci.yml                      ← lint + typecheck + tests + api-contract (on PR + push to main)
-│   ├── eval.yml                    ← real-LLM eval (path-triggered + nightly + manual)
+│   ├── eval.yml                    ← real-LLM eval (path/label/nightly/manual; content-hash cache; secrets-gated; sticky PR comment)
 │   └── deploy.yml                  ← Fly deploy on merge to main
 ├── context/                        ← granular spec files (load on demand)
 │   └── [12 files; see index below]
@@ -221,7 +221,7 @@ rag-case-study/
 │   │   ├── config/                 ← package: __init__.py (singleton + MANIFEST_PATH) + _settings.py + starter_prompts.py
 │   │   ├── api/                    ← auth.py + _rate_limit.py + _security_headers.py + _request_id.py + chat.py + health.py + starter_prompts.py
 │   │   ├── agent/                  ← loop + bootstrap + refusal + validator + history + contracts + prompt + _dispatch
-│   │   ├── tools/                  ← 5 typed tools + _filters + _allowlists + _shared
+│   │   ├── tools/                  ← 8 typed tools (Fork 22 complete) + _filters + _allowlists + _shared
 │   │   ├── rag/                    ← chunker + retriever + always_on + _tokenize
 │   │   └── data/                   ← load + views + validation
 │   ├── prompts/                    ← system-prompt section files (Fork 27)
@@ -231,11 +231,11 @@ rag-case-study/
 │   │   └── generate_evaluation_md.py  ← EVALUATION.md regenerator (G5)
 │   ├── tests/
 │   │   ├── conftest.py             ← root env shim (5 setdefault: ANTHROPIC_API_KEY, BACKEND_API_KEY, ALLOWED_ORIGINS, OPENAI_API_KEY, RATELIMIT_ENABLED=false)
-│   │   ├── _fakes.py               ← shared Anthropic SDK fakes (cross-conftest reuse for unit + integration + eval)
+│   │   ├── _fakes.py               ← shared Anthropic SDK fakes + FakeRetriever (cross-conftest reuse for unit + integration + eval)
 │   │   ├── ground_truth.py + ground_truth.json    ← canonical answer key (Fork 43)
-│   │   ├── unit/                   ← api/ + data/ + agent/ + tools/ + rag/ subdirs (per-subdir conftest)
-│   │   ├── integration/            ← FastAPI app end-to-end via TestClient (PR #9)
-│   │   └── eval/                   ← real-LLM eval (Day 4)
+│   │   ├── unit/                   ← api/ + data/ + agent/ + tools/ + rag/ + eval/ subdirs (per-subdir conftest)
+│   │   ├── integration/            ← FastAPI app via TestClient (PR #9) + stub_llm.py + agent-loop tests (Day 4)
+│   │   └── eval/                   ← real-LLM eval (Day 4): _grading + _report + conftest + test_questions + test_out_of_scope
 │   ├── chroma_db/ + bm25.pkl + manifest.json  ← `make build-index` artifacts (gitignored; Docker bakes; CI builds before integration tests; /ready reads manifest.json)
 │   ├── pyproject.toml + uv.lock    ← uv-managed Python deps
 │   ├── Dockerfile + .dockerignore  ← multi-stage build (Fork 41; UV_PYTHON_DOWNLOADS=0 in builder)
@@ -324,7 +324,10 @@ forgotten. Every session must remember them.
 4. **Citation marker integrity**: the LLM writes `[N]` markers in prose; the
    backend builds the citations array from real retrieval and tool-call
    history (Fork 28). Orphan markers (referencing a non-existent N) must be
-   stripped server-side before returning to the client.
+   stripped server-side before returning to the client. The Fork-28
+   assembly is now fully implemented (Gotcha #25): `knowledge_citations[]`
+   merges RAG retrieval + invoked tools' declared citations +
+   `lookup_knowledge` chunks, deduped by `chunk_id`.
 5. **Release Date is the default date filter** (KB §Business Rule 1). Every
    tool's date filter defaults to `release_date`, never `entry_filed_date`
    or `summary_date`.
@@ -534,6 +537,55 @@ forgotten. Every session must remember them.
     abort before the status check and treat a transient rollout 503 as
     a hard failure) — use a retry loop capturing the HTTP code with
     `curl -s`.
+24. **The dataset CSV must stay `*.csv binary` with its original CRLF
+    bytes** (`feat/remaining-tools-and-eval`, surfaced when the eval
+    suite first ran in CI). `ground_truth.json`'s `dataset_sha256` is
+    pinned to the CSV's byte-exact content. The CSV was first committed
+    under `.gitattributes`'s `* text=auto` (BEFORE the later `*.csv
+    binary` line), so its **blob was LF-normalized** while the local
+    working tree kept its CRLF endings — the SHA was generated against
+    the CRLF working-tree bytes (`1d6df8…`). A fresh CI checkout got the
+    LF blob (`b9626d…`), so the Fork-43 drift guard ERRORed all 16 eval
+    cases before any LLM call (~17s). Fix: `git add --renormalize
+    backend/data/customs_entries_oct2024_mar2025.csv` so the blob honors
+    `*.csv binary` and stores the CRLF bytes the pin targets — no
+    `ground_truth.json` change (the data is byte-identical; only the
+    line-ending representation was being pinned). Never let the CSV be
+    text-normalized; the SHA pin assumes byte-exact storage. Cross-refs
+    Gotcha #9.
+25. **Fork-28 citation assembly is complete** (`feat/remaining-tools-and-eval`,
+    "Option A"). `agent/loop.py:_build_citations` builds
+    `knowledge_citations[]` from real history = RAG-retrieved chunks ∪
+    each invoked tool's declared `ToolResult.citations` ∪
+    `lookup_knowledge`'s returned chunks, deduped by `chunk_id` with
+    sequential IDs sharing the `[N]` space with `tool_calls`. Before this
+    branch the loop used RAG retrieval ONLY, so every tool's
+    `citations=[...]` was dead code and the always-on rules/quirks/metrics
+    (which the step-2 dedup removes from retrieval) never surfaced — they
+    now do, via the owning tool's declaration (e.g., `quirk_1` via
+    `total_duty_breakdown`). The always-on dedup of RAG retrieval is
+    unchanged; only tool-declared + lookup citations are added. Citation
+    CONTENT stays backend-authored (the split-authorship anti-hallucination
+    property is intact). The remaining Fork-28 half — announcing the
+    available `[N]` ids to the LLM in `tool_result` content — is deferred
+    to `feat/citations-panel` (Day 5). Updates Gotcha #4.
+26. **Eval grader: ground-truth Decimals are JSON strings + `line_count`
+    is grain-sensitive** (`feat/remaining-tools-and-eval`, both surfaced
+    on the first real eval run and now guarded by
+    `tests/unit/eval/test_grading.py` regression tests). (a)
+    `ground_truth.json` serializes `Decimal` money as JSON strings
+    (`"59949493.45"`) while tools return real `Decimal`s — the grader
+    compares them NUMERICALLY via the tolerance loop, NEVER string-equality;
+    `_check_scalar` only string-matches a field when the ACTUAL value is
+    itself a `str` (true labels like port code / status), so Decimal money
+    is never spuriously failed (this masked correct answers for Q2/Q4/Q5).
+    (b) `count_lines` (`COUNT(*)`) is the true tariff-line count ONLY on
+    `entry_lines_v` — on `entries_v` it counts entries — so an agent can
+    legitimately emit a misleading `line_count` on an entries_v call
+    alongside the correct one (Q11); `_extract_scalar(...,
+    prefer_view="entry_lines_v")` reads the grain-correct value regardless
+    of call order. The eval record + `REPORT.md` now capture each tool
+    call (name / view / args / result) so failures are self-diagnosing.
 
 ---
 
