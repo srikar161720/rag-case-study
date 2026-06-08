@@ -51,13 +51,18 @@ def _meta() -> ResponseMeta:
 
 
 def _tool(
-    name: str, result: dict[str, Any], args: dict[str, Any] | None = None, id: int = 1
+    name: str,
+    result: dict[str, Any],
+    args: dict[str, Any] | None = None,
+    id: int = 1,
+    view_used: str | None = None,
 ) -> ToolCallTrace:
     return ToolCallTrace(
         id=id,
         name=name,
         args=args or {},
         result=result,
+        view_used=view_used,  # type: ignore[arg-type]
         shell_entries_excluded=0,
         rows_inspected=1,
         latency_ms=1,
@@ -149,6 +154,21 @@ def test_extract_scalar_searches_multiple_tool_calls() -> None:
     assert _extract_scalar(r, "line_count") == 232
 
 
+def test_extract_scalar_prefers_view() -> None:
+    """When the same key appears on two views, prefer_view picks the right one
+    regardless of call order (the Q11 line_count case)."""
+    r = _resp(
+        tool_calls=[
+            _tool("query_entries", {"value": [{"line_count": 68}]}, id=1, view_used="entries_v"),
+            _tool(
+                "query_entries", {"value": [{"line_count": 232}]}, id=2, view_used="entry_lines_v"
+            ),
+        ]
+    )
+    assert _extract_scalar(r, "line_count") == 68  # first-match grabs entries_v
+    assert _extract_scalar(r, "line_count", prefer_view="entry_lines_v") == 232
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # _check_numeric — scalar (Q1/Q3/Q11 shapes)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -197,6 +217,70 @@ def test_numeric_difference_derived_from_counts() -> None:
     )
     checks = _check_numeric(q, r)
     assert all(c.passed for c in checks), [c for c in checks if not c.passed]
+
+
+def test_money_decimal_vs_serialized_str_passes() -> None:
+    """Regression (Q2/Q4): ground_truth serializes Decimals as strings while
+    the tool returns Decimals. The tolerance loop compares them numerically
+    (pass); the label loop must NOT also compare Decimal == str (which always
+    fails). Only a numeric check should appear — no spurious label check."""
+    q = {
+        "answer": {"total_entered_value": "59949493.45"},
+        "tolerance": {"total_entered_value": ["abs", 0.01]},
+    }
+    r = _resp(
+        tool_calls=[
+            _tool("query_entries", {"value": [{"total_entered_value": Decimal("59949493.45")}]})
+        ]
+    )
+    checks = _check_numeric(q, r)
+    assert all(c.passed for c in checks), [(c.name, c.detail) for c in checks if not c.passed]
+    assert not any(c.name == "label:total_entered_value" for c in checks)
+
+
+def test_money_field_without_tolerance_not_label_checked() -> None:
+    """Regression (Q5): context money fields with no tolerance are reference
+    only — they must not be spuriously label-checked (Decimal == str)."""
+    q = {
+        "answer": {"rate_pct": 31.075, "total_duty": "6430022.48"},
+        "tolerance": {"rate_pct": ["rel", 0.001]},
+    }
+    r = _resp(
+        tool_calls=[
+            _tool("effective_duty_rate", {"rate_pct": 31.075, "total_duty": Decimal("6430022.48")})
+        ]
+    )
+    checks = _check_numeric(q, r)
+    assert all(c.passed for c in checks), [(c.name, c.detail) for c in checks if not c.passed]
+    assert not any(c.name == "label:total_duty" for c in checks)
+
+
+def test_line_count_prefers_entry_lines_v() -> None:
+    """Regression (Q11): the agent's redundant count_lines on entries_v (68)
+    must not shadow the real entry_lines_v line_count (232); difference must
+    derive from the line-grain value."""
+    q = {
+        "answer": {"entry_count": 68, "line_count": 232, "difference": 164},
+        "tolerance": {"entry_count": 0, "line_count": 0, "difference": 0},
+    }
+    r = _resp(
+        tool_calls=[
+            _tool(
+                "query_entries",
+                {"value": [{"entry_count": 68, "line_count": 68}]},
+                id=1,
+                view_used="entries_v",
+            ),
+            _tool(
+                "query_entries",
+                {"value": [{"entry_count": 68, "line_count": 232}]},
+                id=2,
+                view_used="entry_lines_v",
+            ),
+        ]
+    )
+    checks = _check_numeric(q, r)
+    assert all(c.passed for c in checks), [(c.name, c.detail) for c in checks if not c.passed]
 
 
 # ─────────────────────────────────────────────────────────────────────────────

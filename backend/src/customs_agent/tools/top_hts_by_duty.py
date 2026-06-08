@@ -108,7 +108,7 @@ def top_hts_by_duty(
         WHERE {where}
         GROUP BY hts_code
         ORDER BY total_duty DESC
-        LIMIT {limit}
+        LIMIT {int(limit)}
     """
     t0 = now_ms()
     rows = safe_execute(con, sql, params).fetchall()

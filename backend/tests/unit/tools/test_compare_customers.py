@@ -79,6 +79,18 @@ def test_rejects_country_of_origin_filter() -> None:
 
 
 @pytest.mark.unit
+def test_rejects_customer_code_filter() -> None:
+    """The tool ranks ALL customers — a customer_code filter would collapse it
+    to a single customer, so it's rejected at the input boundary (not just
+    documented)."""
+    with pytest.raises(ValidationError, match="customer_code"):
+        CompareCustomersInput(
+            metric="ieepa_pct",
+            filters=EntryFilters(customer_code="MHF"),
+        )
+
+
+@pytest.mark.unit
 def test_metric_is_required() -> None:
     with pytest.raises(ValidationError):
         CompareCustomersInput()  # type: ignore[call-arg]

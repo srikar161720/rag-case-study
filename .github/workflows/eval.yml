@@ -87,8 +87,25 @@ jobs:
           key: eval-result-${{ steps.hash.outputs.hash }}
           path: backend/tests/eval/.last-result.json
 
+      # Gate the costly steps on secrets actually being present. Forks / repos
+      # without secrets get empty strings, which would crash build_index.py and
+      # 401 the agent — so without this the "skips cleanly without keys" promise
+      # (which otherwise only holds at the pytest layer) breaks at build time.
+      - name: Check eval secrets are present
+        id: secrets
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ] && [ -n "$OPENAI_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Eval secrets not configured — skipping the real-LLM eval (expected on forks / unconfigured repos)."
+          fi
+
       - name: Build RAG index
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.cache.outputs.cache-hit != 'true' && steps.secrets.outputs.present == 'true'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
@@ -98,7 +115,7 @@ jobs:
             --out-manifest ./manifest.json
 
       - name: Run real-LLM eval
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.cache.outputs.cache-hit != 'true' && steps.secrets.outputs.present == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -107,7 +124,12 @@ jobs:
           LANGFUSE_HOST: https://us.cloud.langfuse.com
         run: uv run pytest tests/eval -v --junitxml=tests/eval/.junit.xml
 
-      - name: Comment results on PR
+      # Sticky comment: find the prior eval comment by a hidden marker and
+      # update it in place, else create one. Keeps exactly one living eval
+      # comment per PR instead of accumulating a new one per run. On a cache
+      # hit there's no REPORT.md and we skip — the existing comment already
+      # reflects this identical content (same content-hash cache key).
+      - name: Comment eval results on PR (sticky)
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         uses: actions/github-script@v7
         with:
@@ -115,16 +137,22 @@ jobs:
             const fs = require('fs');
             const path = 'backend/tests/eval/REPORT.md';
             if (!fs.existsSync(path)) {
-              core.info('No REPORT.md (cache hit or eval skipped) — nothing to comment.');
+              core.info('No REPORT.md (cache hit or eval skipped) — the existing sticky comment already reflects this content.');
               return;
             }
-            const report = fs.readFileSync(path, 'utf8');
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: report,
+            const MARKER = '<!-- customs-eval-report -->';
+            const body = MARKER + '\n' + fs.readFileSync(path, 'utf8');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number,
             });
+            const existing = comments.find((c) => c.body && c.body.includes(MARKER));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
 
       - name: Upload eval artifacts
         if: ${{ !cancelled() }}
