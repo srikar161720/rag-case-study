@@ -6,9 +6,12 @@ LLM doing arithmetic across separate tool calls.
 
 Always queries ``entries_v`` (entry grain), which already encodes the
 per-entry MPF cap (KB §Quirk 3); ``total_duty`` is therefore the correct
-capped figure. The percentage metrics are computed in SQL with the same
-expression as the ground-truth answer key (:func:`tests.ground_truth.q7`)
-so the numbers match to the cent.
+capped figure. A CTE computes the per-customer base aggregates, then an
+outer SELECT derives the percentage metrics in SQL with the same
+``100.0 * num / denom`` expression and zero-denominator guard as the
+ground-truth answer key (:func:`tests.ground_truth.q7`) — so the numbers
+match to the cent. Python only rounds the percentages to 4 decimals and
+ranks the rows (the metric is dynamic, so ranking stays in Python).
 
 Supported metrics (ranked descending):
 
@@ -90,12 +93,18 @@ class CompareCustomersInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
-    def _reject_line_grain_filter(self) -> "CompareCustomersInput":
+    def _reject_incompatible_filters(self) -> "CompareCustomersInput":
         if self.filters.country_of_origin_code is not None:
             raise ValueError(
                 "compare_customers operates on entries_v (entry grain); "
                 "country_of_origin_code is line-grain and cannot be applied. "
                 "Drop the country filter, or use a line-grain tool."
+            )
+        if self.filters.customer_code is not None:
+            raise ValueError(
+                "compare_customers ranks ALL customers; do not set "
+                "customer_code in filters — it would restrict the comparison "
+                "to a single customer and make the ranking meaningless."
             )
         return self
 
@@ -116,30 +125,44 @@ def compare_customers(
 ) -> ToolResult:
     """Rank customers by ``metric`` (descending) over the filtered set."""
     where, params = build_where_clause(filters)
-    # Compute every base aggregate + the three percentage expressions in
-    # SQL so the values match the ground-truth answer key exactly. The
-    # percentage expressions use 100.0 (DOUBLE) and a zero-denominator
-    # guard identical to tests.ground_truth.q7.
+    # Compute the per-customer base aggregates in a CTE, then derive the
+    # three percentage metrics in the outer SELECT — all in SQL — so the
+    # values match the ground-truth answer key exactly (same 100.0-DOUBLE
+    # expression and zero-denominator guard as tests.ground_truth.q7).
     sql = f"""
+        WITH per_customer AS (
+            SELECT
+                customer_code,
+                SUM(total_primary_duty)                  AS primary_duty,
+                COALESCE(SUM(total_section_301_duty), 0) AS section_301,
+                COALESCE(SUM(total_ieepa_duty), 0)       AS ieepa,
+                SUM(total_mpf_capped)                    AS mpf_capped,
+                SUM(total_hmf)                           AS hmf,
+                SUM(total_entered_value)                 AS total_entered_value,
+                COUNT(*)                                 AS entry_count,
+                (
+                    SUM(total_primary_duty)
+                    + COALESCE(SUM(total_section_301_duty), 0)
+                    + COALESCE(SUM(total_ieepa_duty), 0)
+                    + SUM(total_mpf_capped)
+                    + SUM(total_hmf)
+                )                                        AS total_duty
+            FROM {VIEW}
+            WHERE {where}
+            GROUP BY customer_code
+        )
         SELECT
             customer_code,
-            SUM(total_primary_duty)                      AS primary_duty,
-            COALESCE(SUM(total_section_301_duty), 0)     AS section_301,
-            COALESCE(SUM(total_ieepa_duty), 0)           AS ieepa,
-            SUM(total_mpf_capped)                        AS mpf_capped,
-            SUM(total_hmf)                               AS hmf,
-            SUM(total_entered_value)                     AS total_entered_value,
-            COUNT(*)                                     AS entry_count,
-            (
-                SUM(total_primary_duty)
-                + COALESCE(SUM(total_section_301_duty), 0)
-                + COALESCE(SUM(total_ieepa_duty), 0)
-                + SUM(total_mpf_capped)
-                + SUM(total_hmf)
-            )                                            AS total_duty
-        FROM {VIEW}
-        WHERE {where}
-        GROUP BY customer_code
+            primary_duty, section_301, ieepa, mpf_capped, hmf,
+            total_entered_value, entry_count, total_duty,
+            CASE WHEN total_duty > 0
+                 THEN 100.0 * ieepa / total_duty ELSE 0 END AS ieepa_pct,
+            CASE WHEN total_duty > 0
+                 THEN 100.0 * section_301 / total_duty ELSE 0 END AS section_301_pct,
+            CASE WHEN total_entered_value > 0
+                 THEN 100.0 * total_duty / total_entered_value ELSE 0 END
+                 AS effective_duty_rate_pct
+        FROM per_customer
     """
     t0 = now_ms()
     cursor = safe_execute(con, sql, params)
@@ -147,24 +170,13 @@ def compare_customers(
     rows = [dict(zip(columns, row, strict=False)) for row in cursor.fetchall()]
     latency = now_ms() - t0
 
-    def _pct(numerator: Any, denominator: Any) -> float:
-        denom = float(denominator or 0)
-        return round(100.0 * float(numerator) / denom, 4) if denom else 0.0
+    def _value(agg: dict[str, Any]) -> Any:
+        """Read the metric's SQL-computed value; round percentages to 4
+        decimals (q7 rounds the SQL-computed pct the same way)."""
+        v = agg[metric]
+        return round(float(v), 4) if metric.endswith("_pct") else v
 
-    def _metric_value(agg: dict[str, Any]) -> float | Any:
-        if metric == "ieepa_pct":
-            return _pct(agg["ieepa"], agg["total_duty"])
-        if metric == "section_301_pct":
-            return _pct(agg["section_301"], agg["total_duty"])
-        if metric == "effective_duty_rate_pct":
-            return _pct(agg["total_duty"], agg["total_entered_value"])
-        if metric == "total_duty":
-            return agg["total_duty"] or 0
-        if metric == "total_entered_value":
-            return agg["total_entered_value"] or 0
-        return int(agg["entry_count"])  # entry_count
-
-    scored = sorted(rows, key=lambda a: float(_metric_value(a)), reverse=True)
+    scored = sorted(rows, key=lambda a: float(_value(a)), reverse=True)
 
     ranked: list[dict[str, Any]] = []
     for i, agg in enumerate(scored):
@@ -173,7 +185,7 @@ def compare_customers(
             num_key, denom_key = _PCT_METRICS[metric]
             entry[num_key] = agg[num_key]
             entry[denom_key] = agg[denom_key]
-        entry[metric] = _metric_value(agg)
+        entry[metric] = _value(agg)
         entry["rank"] = i + 1
         ranked.append(entry)
 

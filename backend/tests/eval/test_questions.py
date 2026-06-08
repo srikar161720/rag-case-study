@@ -37,6 +37,18 @@ def test_question(question, agent_client, eval_results) -> None:
             "input_tokens": response.meta.input_tokens,
             "cached_input_tokens": response.meta.cached_input_tokens,
             "output_tokens": response.meta.output_tokens,
+            # Per-call summary so a failure is self-diagnosing from the report
+            # alone (which view + args + result each tool returned) instead of
+            # needing a forensic log dig.
+            "tool_calls": [
+                {
+                    "name": tc.name,
+                    "view_used": tc.view_used,
+                    "args": tc.args,
+                    "result": tc.result,
+                }
+                for tc in response.tool_calls
+            ],
         }
     )
 

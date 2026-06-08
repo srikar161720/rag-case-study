@@ -62,6 +62,25 @@ def build_report_markdown(results: list[dict[str, Any]]) -> str:
             lines.append(f"| {r['id']} | T{r['tier']} | {icon} {r['status']} | {notes} |")
         lines.append("")
 
+    # Self-diagnosing detail: for any failing question, show what each tool
+    # actually returned (name + view + args + result) so the cause is visible
+    # in the report instead of requiring a workflow-log dig.
+    failed = [r for r in graded if r["status"] in ("FAIL", "ERROR") and r.get("tool_calls")]
+    if failed:
+        lines += ["<details><summary>Tool calls for failing questions</summary>", ""]
+        for r in failed:
+            lines.append(f"**Q{r['id']}**")
+            for tc in r.get("tool_calls", []):
+                result_str = json.dumps(tc.get("result"), default=str)
+                if len(result_str) > 300:
+                    result_str = result_str[:297] + "…"
+                lines.append(
+                    f"- `{tc.get('name')}` · view=`{tc.get('view_used')}` "
+                    f"→ `{result_str}`"
+                )
+            lines.append("")
+        lines += ["</details>", ""]
+
     oos = [r for r in results if r.get("kind") == "out_of_scope"]
     if oos:
         lines += [

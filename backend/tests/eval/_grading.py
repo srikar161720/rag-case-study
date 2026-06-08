@@ -141,13 +141,28 @@ def _walk(obj: Any, key: str) -> Iterator[Any]:
             yield from _walk(item, key)
 
 
-def _extract_scalar(response: ChatResponse, key: str) -> Any | None:
+def _extract_scalar(
+    response: ChatResponse, key: str, prefer_view: str | None = None
+) -> Any | None:
     """First value found under ``key`` across all tool-call results.
 
     Tool results are dicts (or the ``{"value": [...]}`` wrapper the loop
     applies to list-returning tools like ``query_entries``); the
     recursive walk reaches into either shape.
+
+    ``prefer_view`` makes extraction grain-aware: tool calls on that view
+    are searched first. This matters for grain-sensitive metrics like
+    ``line_count`` — ``COUNT(*)`` is the true tariff-line count only on
+    ``entry_lines_v`` (on ``entries_v`` it counts entries), so an agent can
+    legitimately emit a misleading ``line_count`` on an entries_v call
+    alongside the correct one on entry_lines_v; preferring the line-grain
+    view picks the right one regardless of call order.
     """
+    if prefer_view is not None:
+        for tc in response.tool_calls:
+            if tc.view_used == prefer_view:
+                for found in _walk(tc.result, key):
+                    return found
     for tc in response.tool_calls:
         for found in _walk(tc.result, key):
             return found
@@ -190,26 +205,39 @@ def _check_numeric(question: dict[str, Any], r: ChatResponse) -> list[Check]:
     return _check_scalar(answer, tol, r)
 
 
+# Metrics whose COUNT(*) meaning depends on the view's grain. line_count is
+# the true tariff-line count only on entry_lines_v (COUNT(*) on entries_v
+# counts entries), so extraction prefers the line-grain call.
+_GRAIN_PREFERRED_VIEW = {"line_count": "entry_lines_v"}
+
+
 def _check_scalar(
     answer: dict[str, Any], tol: dict[str, Any], r: ChatResponse
 ) -> list[Check]:
     checks: list[Check] = []
     # Numeric fields with an explicit tolerance.
     for key, tolerance in tol.items():
-        actual = _extract_scalar(r, key)
+        actual = _extract_scalar(r, key, prefer_view=_GRAIN_PREFERRED_VIEW.get(key))
         if actual is None and key == "difference":
-            ec, lc = _extract_scalar(r, "entry_count"), _extract_scalar(r, "line_count")
+            ec = _extract_scalar(r, "entry_count")
+            lc = _extract_scalar(
+                r, "line_count", prefer_view=_GRAIN_PREFERRED_VIEW.get("line_count")
+            )
             if ec is not None and lc is not None:
                 actual = _to_float(lc) - _to_float(ec)
         ok, detail = assert_close(actual, answer.get(key), tolerance)
         checks.append(Check(f"numeric:{key}", ok, detail))
-    # String labels (port code, status, etc.). Checked only when the field
-    # is actually produced by a tool — knowledge-only fields like Q10's
-    # ``date_field`` aren't structural and are validated via expected_phrases.
+    # String LABELS only — true non-numeric identifiers (port code, status).
+    # A numeric value serialized as a string in ground_truth (Decimal money)
+    # comes back from the tool as a Decimal, not a str, so the
+    # ``isinstance(actual, str)`` guard skips it here — it's already graded by
+    # the tolerance loop above (or intentionally left as context when it has
+    # no tolerance). Knowledge-only fields like Q10's ``date_field`` aren't
+    # produced by any tool (actual is None) and are validated via phrases.
     for key, expected in answer.items():
         if isinstance(expected, str):
             actual = _extract_scalar(r, key)
-            if actual is not None:
+            if isinstance(actual, str):
                 checks.append(
                     Check(
                         f"label:{key}",

@@ -87,3 +87,12 @@ def test_input_limit_bounds_enforced() -> None:
         TopHtsByDutyInput(bogus="x")  # type: ignore[call-arg]
     # Valid construction with default limit.
     assert TopHtsByDutyInput().limit == 5
+
+
+@pytest.mark.unit
+def test_limit_coerced_to_int_in_sql(duckdb_con: duckdb.DuckDBPyConnection) -> None:
+    """The SQL interpolates LIMIT via int(limit) — a direct caller passing a
+    numeric string still yields valid SQL (defense-in-depth for callers that
+    bypass the Pydantic input validator)."""
+    result = top_hts_by_duty(duckdb_con, _PCA_CN, limit="3")  # type: ignore[arg-type]
+    assert len(result.data["top_hts"]) == 3
