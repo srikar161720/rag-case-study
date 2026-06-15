@@ -1,0 +1,20 @@
+# gitleaks configuration — extends the default ruleset with a single allowlist.
+#
+# The only allowlisted path is the secret-shape scrubber's unit test, which is
+# BY DESIGN a collection of shape-accurate but entirely fake provider keys
+# (sk-ant-…, sk-proj-…, pk-lf-…, sk-lf-…). They exist solely to prove the log
+# scrubber redacts secret-shaped strings. gitleaks' generic-api-key rule flags
+# the FAKE_LANGFUSE_SECRET fixture (its identifier contains "secret" and the
+# value clears the entropy threshold) — an intentional false positive.
+#
+# A path allowlist (read from the working tree at scan time) clears the finding
+# across the entire scanned commit range AND survives the rebase-merge SHA
+# rewrite, unlike a fingerprint-based .gitleaksignore entry. `useDefault = true`
+# keeps every default rule active for the rest of the repository.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake provider keys in the scrubber unit test (fixtures only — not real secrets)"
+paths = ['''backend/tests/unit/observability/test_scrubber\.py''']

@@ -7,7 +7,7 @@ refusal handling, citation validation, and sidecar ID assignment.
 """
 
 import pytest
-import structlog
+import structlog.testing
 
 from customs_agent.agent.contracts import Message
 from customs_agent.agent.loop import (
