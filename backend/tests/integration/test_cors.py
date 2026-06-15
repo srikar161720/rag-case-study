@@ -21,6 +21,7 @@ is exactly the silent failure mode the spec wants caught early.
 """
 
 import pytest
+import structlog.testing
 from fastapi.testclient import TestClient
 
 
@@ -99,3 +100,44 @@ def test_cors_preflight_caches_for_one_hour(client: TestClient) -> None:
         },
     )
     assert response.headers.get("access-control-max-age") == "3600"
+
+
+@pytest.mark.integration
+def test_disallowed_origin_preflight_logs_rejection_event(
+    client: TestClient,
+) -> None:
+    """A preflight from a disallowed origin emits ``cors.preflight_rejected``
+    with the origin + requested method. The stock CORSMiddleware rejects
+    silently; ``LoggingCORSMiddleware`` adds the observability signal
+    (Fork 52)."""
+    with structlog.testing.capture_logs() as logs:
+        client.options(
+            "/chat",
+            headers={
+                "Origin": "https://evil.example.com",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "X-API-Key,Content-Type",
+            },
+        )
+    events = [e for e in logs if e["event"] == "cors.preflight_rejected"]
+    assert len(events) == 1
+    assert events[0]["origin"] == "https://evil.example.com"
+    assert events[0]["method"] == "POST"
+
+
+@pytest.mark.integration
+def test_allowed_origin_preflight_does_not_log_rejection(
+    client: TestClient,
+) -> None:
+    """An allowed-origin preflight returns 200 and emits NO rejection event
+    — the wrapper only fires on the failure path."""
+    with structlog.testing.capture_logs() as logs:
+        response = client.options(
+            "/chat",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+    assert response.status_code == 200
+    assert not [e for e in logs if e["event"] == "cors.preflight_rejected"]

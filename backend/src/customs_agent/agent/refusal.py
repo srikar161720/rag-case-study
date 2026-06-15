@@ -35,6 +35,7 @@ from typing import get_args
 import structlog
 
 from customs_agent.agent.contracts import RefusalCategory
+from customs_agent.observability.events import Events
 
 log = structlog.get_logger()
 
@@ -81,7 +82,7 @@ def detect_refusal(prose: str) -> tuple[RefusalCategory | None, str]:
     category = match.group(1).lower()
     if category not in VALID_CATEGORIES:
         log.warning(
-            "agent.unknown_refusal_category",
+            Events.AGENT_UNKNOWN_REFUSAL_CATEGORY,
             category=category,
             valid_categories=sorted(VALID_CATEGORIES),
         )

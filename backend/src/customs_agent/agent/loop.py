@@ -48,6 +48,7 @@ from customs_agent.agent.history import prune_history
 from customs_agent.agent.prompt import PROMPT_VERSION, STATIC_SYSTEM_PROMPT
 from customs_agent.agent.refusal import detect_refusal
 from customs_agent.agent.validator import validate_markers
+from customs_agent.observability.events import Events
 
 log = structlog.get_logger()
 
@@ -325,7 +326,12 @@ def run_agent(
         ``ResponseMeta`` make graceful degradation observable.
     """
     t_start = _now_ms()
-    log.info("agent.run.started", request_id=request_id, history_len=len(history))
+    log.info(
+        Events.AGENT_RUN_STARTED,
+        request_id=request_id,
+        history_len=len(history),
+        user_message_length=len(user_message),
+    )
 
     # 1. Retrieve
     retrieved_all = ctx.retriever.retrieve(user_message, k=5)
@@ -412,7 +418,7 @@ def run_agent(
                     result = seen_tool_calls[cache_key]
                     duplicate_count += 1
                     log.warning(
-                        "agent.duplicate_tool_call",
+                        Events.AGENT_DUPLICATE_TOOL_CALL,
                         request_id=request_id, tool=block.name,
                     )
                 else:
@@ -423,7 +429,7 @@ def run_agent(
                         # surfaced back to the LLM as a tool_result so the
                         # loop can self-correct rather than crash the request.
                         log.error(
-                            "agent.tool_error",
+                            Events.AGENT_TOOL_ERROR,
                             request_id=request_id, tool=block.name,
                             error=str(exc),
                         )
@@ -438,7 +444,7 @@ def run_agent(
             anthropic_messages.append({"role": "user", "content": tool_results_content})
         else:
             log.warning(
-                "agent.unexpected_stop_reason",
+                Events.AGENT_UNEXPECTED_STOP_REASON,
                 request_id=request_id, stop_reason=stop_reason,
             )
             break
@@ -446,7 +452,7 @@ def run_agent(
         if total_input_tokens > settings.max_input_tokens:
             budget_limit_hit = True
             log.warning(
-                "agent.input_token_budget_hit",
+                Events.AGENT_INPUT_TOKEN_BUDGET_HIT,
                 request_id=request_id, tokens=total_input_tokens,
             )
             break
@@ -454,7 +460,7 @@ def run_agent(
     if iterations_used >= settings.max_iterations:
         iteration_limit_hit = True
         log.warning(
-            "agent.iteration_limit_hit",
+            Events.AGENT_ITERATION_LIMIT,
             request_id=request_id, iterations=iterations_used,
         )
 
@@ -464,6 +470,13 @@ def run_agent(
     # 7. Refusal detection (this branch's design decision — Fork 25)
     category, prose = detect_refusal(final_text)
     refused = category is not None
+    if refused:
+        log.info(
+            Events.AGENT_REFUSAL,
+            request_id=request_id,
+            refusal_category=category,
+            user_message_preview=user_message[:80],
+        )
 
     # 8. Build sidecar — citations from real retrieval AND tool-call
     #    history (Fork 28); tool_calls continue the shared [N] namespace.
@@ -501,7 +514,7 @@ def run_agent(
     )
 
     log.info(
-        "agent.run.completed",
+        Events.AGENT_RUN_COMPLETED,
         request_id=request_id,
         iterations_used=iterations_used,
         refused=refused,

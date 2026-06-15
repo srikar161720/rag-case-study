@@ -20,12 +20,17 @@ exemption logic to drift out of sync (Fork 40).
 
 from secrets import compare_digest
 
-from fastapi import Header, HTTPException, status
+import structlog
+from fastapi import Header, HTTPException, Request, status
 
 from customs_agent.config import settings
+from customs_agent.observability.events import Events
+
+log = structlog.get_logger()
 
 
 async def require_api_key(
+    request: Request,
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> str:
     """FastAPI dependency that validates the ``X-API-Key`` header.
@@ -40,6 +45,11 @@ async def require_api_key(
         401 if the header is missing; 403 if the value doesn't match.
     """
     if not x_api_key:
+        log.warning(
+            Events.AUTH_MISSING_KEY,
+            client_ip=request.client.host if request.client else None,
+            path=request.url.path,
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
@@ -56,6 +66,12 @@ async def require_api_key(
     if not compare_digest(
         x_api_key.encode("utf-8"), settings.backend_api_key.encode("utf-8")
     ):
+        log.warning(
+            Events.AUTH_INVALID_KEY,
+            api_key_prefix=x_api_key[:8],
+            client_ip=request.client.host if request.client else None,
+            path=request.url.path,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={

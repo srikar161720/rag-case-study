@@ -14,6 +14,7 @@ from datetime import date
 
 import duckdb
 import pytest
+import structlog.testing
 
 from customs_agent.tools._filters import EntryFilters
 from customs_agent.tools._shared import (
@@ -182,6 +183,21 @@ def test_safe_execute_refuses_non_read(
     with pytest.raises(ValueError) as exc:
         safe_execute(con, sql)
     assert "safe_execute" in str(exc.value)
+
+
+@pytest.mark.unit
+def test_safe_execute_logs_unsafe_sql_blocked_event(
+    con: duckdb.DuckDBPyConnection,
+) -> None:
+    """Blocking a non-read statement emits ``sql_safety.unsafe_sql_blocked``
+    with the offending leading keyword + a truncated SQL prefix (Fork 52)."""
+    with structlog.testing.capture_logs() as logs:
+        with pytest.raises(ValueError):
+            safe_execute(con, "DROP TABLE entry_lines")
+    events = [e for e in logs if e["event"] == "sql_safety.unsafe_sql_blocked"]
+    assert len(events) == 1
+    assert events[0]["first_word"] == "DROP"
+    assert events[0]["sql_prefix"].startswith("DROP TABLE")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

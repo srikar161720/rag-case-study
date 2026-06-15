@@ -47,8 +47,10 @@ import re
 from typing import Any, Literal
 
 import duckdb
+import structlog
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from customs_agent.observability.events import Events
 from customs_agent.tools._allowlists import (
     ALLOWED_AGGREGATIONS,
     ALLOWED_GROUP_BY,
@@ -65,6 +67,8 @@ from customs_agent.tools._shared import (
     now_ms,
     safe_execute,
 )
+
+log = structlog.get_logger()
 
 TOOL_NAME = "query_entries"
 
@@ -118,6 +122,11 @@ class QueryEntriesInput(BaseModel):
     def _check_group_by(cls, v: list[str]) -> list[str]:
         bad = set(v) - ALLOWED_GROUP_BY
         if bad:
+            log.warning(
+                Events.SQL_SAFETY_INVALID_COLUMN_NAME,
+                field="group_by",
+                invalid_values=sorted(bad),
+            )
             raise ValueError(
                 f"Invalid group_by columns: {sorted(bad)}. "
                 f"Allowed: {sorted(ALLOWED_GROUP_BY)}"
@@ -129,6 +138,11 @@ class QueryEntriesInput(BaseModel):
     def _check_aggregations(cls, v: list[str]) -> list[str]:
         bad = set(v) - ALLOWED_AGGREGATIONS
         if bad:
+            log.warning(
+                Events.SQL_SAFETY_INVALID_COLUMN_NAME,
+                field="aggregations",
+                invalid_values=sorted(bad),
+            )
             raise ValueError(
                 f"Invalid aggregations: {sorted(bad)}. "
                 f"Must be in ALLOWED_AGGREGATIONS."
@@ -145,6 +159,11 @@ class QueryEntriesInput(BaseModel):
     ) -> list[tuple[str, Literal["asc", "desc"]]]:
         bad = {col for col, _ in v if col not in ALLOWED_ORDER_BY}
         if bad:
+            log.warning(
+                Events.SQL_SAFETY_INVALID_COLUMN_NAME,
+                field="order_by",
+                invalid_values=sorted(bad),
+            )
             raise ValueError(
                 f"Invalid order_by columns: {sorted(bad)}. "
                 f"Must be in ALLOWED_ORDER_BY (group_by columns or aggregation names)."

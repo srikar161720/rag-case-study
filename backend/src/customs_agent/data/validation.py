@@ -39,6 +39,7 @@ from typing import get_args
 import duckdb
 import structlog
 
+from customs_agent.observability.events import Events
 from customs_agent.tools._filters import CountryCode, CustomerCode, PortCode
 
 log = structlog.get_logger()
@@ -152,7 +153,7 @@ def validate_loaded_data(con: duckdb.DuckDBPyConnection) -> None:
     assert row is not None
     shells = int(row[0])
     log.info(
-        "data.validation.complete",
+        Events.DATA_VALIDATION_COMPLETE,
         rows=n,
         distinct_entries=e,
         shell_entries_detected=shells,

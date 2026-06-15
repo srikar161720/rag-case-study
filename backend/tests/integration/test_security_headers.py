@@ -127,7 +127,7 @@ def test_main_app_user_middleware_outermost_is_security_headers() -> None:
     assert classes[-1] == "RequestLoggingMiddleware", (
         f"RequestLogging must be innermost user middleware; got order: {classes}"
     )
-    assert "CORSMiddleware" in classes
+    assert "LoggingCORSMiddleware" in classes
     assert "SlowAPIMiddleware" in classes
 
 

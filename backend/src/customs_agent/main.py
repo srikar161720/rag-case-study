@@ -15,7 +15,7 @@ Three responsibilities:
 
    - :class:`SecurityHeadersMiddleware` — 4 defensive headers on every
      response including 4xx/5xx error paths (Fork 51).
-   - :class:`CORSMiddleware` — origin allowlist from
+   - :class:`LoggingCORSMiddleware` — origin allowlist from
      ``settings.cors_exact_origins`` + ``cors_combined_regex``
      (Fork 38). ``allow_credentials=False`` since the proxy injects
      the API key server-side; ``max_age=3600`` caches preflight.
@@ -43,13 +43,13 @@ from pathlib import Path
 import duckdb
 from anthropic import Anthropic
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from customs_agent.agent.bootstrap import build_agent_context
 from customs_agent.agent.loop import AgentLoopSettings
 from customs_agent.api import chat, health, starter_prompts
+from customs_agent.api._cors import LoggingCORSMiddleware
 from customs_agent.api._rate_limit import custom_rate_limit_handler, limiter
 from customs_agent.api._security_headers import SecurityHeadersMiddleware
 from customs_agent.config import settings
@@ -194,7 +194,7 @@ app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)  # type:
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(
-    CORSMiddleware,
+    LoggingCORSMiddleware,
     allow_origins=settings.cors_exact_origins,
     allow_origin_regex=settings.cors_combined_regex,
     allow_credentials=False,
