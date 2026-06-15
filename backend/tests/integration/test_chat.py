@@ -9,8 +9,9 @@ network-dependent pieces are mocked.
 This covers:
 
 - Happy path: LLM emits a plain text response → 200 with a valid
-  :class:`ChatResponse` shape including a UUID ``request_id``,
-  populated ``prompt_version`` and ``model``, ``refused=False``.
+  :class:`ChatResponse` shape including a ``req_``-prefixed
+  ``request_id``, populated ``prompt_version`` and ``model``,
+  ``refused=False``.
 - Refusal path: LLM prepends the ``<!-- refusal:<category> -->``
   marker → 200 with ``refused=True`` and the category surfaced in
   ``refusal_category``.
@@ -102,11 +103,13 @@ def test_chat_simple_text_response_returns_200_and_response_shape(
     assert body["tool_calls"] == []
     assert body["assumptions"] == []
 
-    # ResponseMeta — request_id is a UUID, prompt_version and model
-    # are non-empty strings, usage numbers are populated from the fake.
+    # ResponseMeta — request_id has the canonical ``req_<12 hex>`` shape
+    # (Fork 52) stamped by RequestLoggingMiddleware, prompt_version and
+    # model are non-empty strings, usage numbers populated from the fake.
     meta = body["meta"]
     assert isinstance(meta["request_id"], str)
-    assert len(meta["request_id"]) >= 32  # uuid4 with hyphens is 36 chars
+    assert meta["request_id"].startswith("req_")
+    assert len(meta["request_id"]) == 16  # "req_" + 12 hex chars
     assert isinstance(meta["prompt_version"], str)
     assert meta["model"] == "claude-sonnet-4-6"
     assert meta["temperature"] == 0.0
@@ -122,8 +125,8 @@ def test_chat_request_id_is_unique_per_request(
     valid_headers: dict[str, str],
     fake_anthropic: FakeAnthropicClient,
 ) -> None:
-    """Each request gets a fresh UUID — the interim
-    :class:`RequestIdMiddleware` is wired and runs per request."""
+    """Each request gets a fresh ``req_<12 hex>`` id —
+    :class:`RequestLoggingMiddleware` is wired and runs per request."""
     fake_anthropic.queue(
         FakeResponse(
             stop_reason="end_turn",

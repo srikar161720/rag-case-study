@@ -22,8 +22,10 @@ Three responsibilities:
    - :class:`SlowAPIMiddleware` — rate limit enforcement per-route via
      ``@limiter.limit`` decorators (Fork 47). Limiter +
      ``RateLimitExceeded`` handler are wired alongside.
-   - :class:`RequestIdMiddleware` — interim request_id binding (full
-     logging middleware on ``feat/observability-base``).
+   - :class:`RequestLoggingMiddleware` — binds ``request_id`` to
+     ``request.state`` + a structlog contextvar and emits the
+     ``request.received`` / ``request.completed`` / ``request.failed``
+     stdout events (Fork 52). Replaces the interim ``RequestIdMiddleware``.
 
 3. **Router includes** — the 4 endpoint routers under ``api/``:
    ``chat`` (POST /chat), ``starter_prompts`` (GET /api/starter-prompts),
@@ -49,14 +51,26 @@ from customs_agent.agent.bootstrap import build_agent_context
 from customs_agent.agent.loop import AgentLoopSettings
 from customs_agent.api import chat, health, starter_prompts
 from customs_agent.api._rate_limit import custom_rate_limit_handler, limiter
-from customs_agent.api._request_id import RequestIdMiddleware
 from customs_agent.api._security_headers import SecurityHeadersMiddleware
 from customs_agent.config import settings
 from customs_agent.data.load import load_entries
 from customs_agent.data.validation import validate_loaded_data
 from customs_agent.data.views import create_views
+from customs_agent.observability.logging import (
+    RequestLoggingMiddleware,
+    configure_logging,
+)
 from customs_agent.rag.chunker import parse_chunks
 from customs_agent.rag.retriever import HybridRetriever
+
+# Configure structlog ONCE at import (CLAUDE.md Gotcha #11). Every
+# ``structlog.get_logger()`` caller — including the boot-time
+# ``data.validation.complete`` event emitted inside ``lifespan`` below —
+# then picks up the dev/prod renderer split + secret scrubber +
+# request-context binding automatically. ``ENVIRONMENT=production``
+# (set in ``fly.toml``) renders one-line JSON for ``fly logs``; local dev
+# renders pretty colored console output.
+configure_logging(settings.environment)
 
 # Resolve the build-artifact root. Docker bakes them at ``/app/``
 # (Fork 17, ``chore/dockerfile-fly`` ships the COPY); locally the
@@ -157,14 +171,14 @@ app = FastAPI(
 #    fires (browsers preflighting shouldn't trip the bucket).
 # 3. SlowAPIMiddleware after CORS so rejected-origin requests don't
 #    count against the bucket.
-# 4. RequestIdMiddleware innermost so request.state.request_id is set
+# 4. RequestLoggingMiddleware innermost so request.state.request_id is set
 #    BEFORE any route or dependency runs.
 #
 # Starlette's ``app.add_middleware()`` does ``user_middleware.insert(0, ...)``
 # — every call PREPENDS. Net effect: the LAST ``add_middleware`` call
 # wraps OUTERMOST and the FIRST call wraps INNERMOST among user
 # middlewares. The add order below is therefore the REVERSE of the
-# request execution order above: RequestId added first → innermost;
+# request execution order above: RequestLogging added first → innermost;
 # SEM added last → outermost. The middleware-order assertion in
 # tests/integration/test_security_headers.py guards against accidental
 # regression here.
@@ -177,7 +191,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)  # type: ignore[arg-type]
 
 # Middleware adds, in INNER → OUTER order (Starlette prepends):
-app.add_middleware(RequestIdMiddleware)
+app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(
     CORSMiddleware,

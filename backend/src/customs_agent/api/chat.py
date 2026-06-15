@@ -3,8 +3,8 @@
 Thin handler that:
 
 1. Reads the per-request ``request_id`` stamped by
-   :mod:`customs_agent.api._request_id` (full structured logging
-   middleware lands on ``feat/observability-base``).
+   :class:`customs_agent.observability.logging.RequestLoggingMiddleware`
+   onto ``request.state``.
 2. Reads the singleton :class:`AgentContext` built once at boot by
    :func:`customs_agent.agent.bootstrap.build_agent_context` and stored
    on ``app.state.agent_ctx``.
