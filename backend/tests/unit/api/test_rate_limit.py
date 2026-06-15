@@ -21,6 +21,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+import structlog.testing
 from fastapi import Request
 from slowapi.errors import RateLimitExceeded
 
@@ -28,6 +29,7 @@ from customs_agent.api._rate_limit import (
     composite_key,
     custom_rate_limit_handler,
 )
+from customs_agent.observability.events import Events
 
 # ─────────────────────────────────────────────────────────────────────────────
 # composite_key
@@ -95,6 +97,24 @@ def test_composite_key_missing_client_uses_unknown() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _make_handler_request(
+    *, api_key: str = "deadbeefcafe1234", host: str = "9.9.9.9", path: str = "/chat"
+) -> Request:
+    """Real ASGI :class:`Request` for the handler tests — the handler calls
+    ``composite_key(request)`` and reads ``request.url.path`` to build the
+    ``ratelimit.hit`` event, so the SimpleNamespace stub isn't enough."""
+    headers = [(b"x-api-key", api_key.encode())] if api_key else []
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": path,
+            "headers": headers,
+            "client": (host, 0),
+        }
+    )
+
+
 @pytest.mark.asyncio
 @pytest.mark.unit
 async def test_custom_rate_limit_handler_returns_429_with_retry_after() -> None:
@@ -105,10 +125,11 @@ async def test_custom_rate_limit_handler_returns_429_with_retry_after() -> None:
     surface as 500s under TestClient (the Plan agent flagged this as
     landmine #1).
     """
-    request = MagicMock(spec=Request)
+    request = _make_handler_request(api_key="deadbeefcafe1234", host="9.9.9.9")
     exc = RateLimitExceeded(MagicMock(error_message="20 per 1 minute"))
 
-    response = await custom_rate_limit_handler(request, exc)
+    with structlog.testing.capture_logs() as logs:
+        response = await custom_rate_limit_handler(request, exc)
 
     assert response.status_code == 429
     assert response.headers["Retry-After"] == "60"  # default when exc has no retry_after
@@ -119,13 +140,20 @@ async def test_custom_rate_limit_handler_returns_429_with_retry_after() -> None:
     assert "Too many requests" in body["message"]
     assert "60 seconds" in body["message"]
 
+    # ratelimit.hit event carries the composite bucket + endpoint (Fork 52).
+    hits = [e for e in logs if e["event"] == Events.RATELIMIT_HIT]
+    assert len(hits) == 1
+    assert hits[0]["bucket"] == "deadbeef:9.9.9.9"
+    assert hits[0]["endpoint"] == "/chat"
+    assert hits[0]["retry_after"] == 60
+
 
 @pytest.mark.asyncio
 @pytest.mark.unit
 async def test_custom_rate_limit_handler_honors_explicit_retry_after() -> None:
     """When the exception carries an explicit ``retry_after`` attribute,
     the handler propagates it into both the header and body."""
-    request = MagicMock(spec=Request)
+    request = _make_handler_request()
     exc = RateLimitExceeded(MagicMock(error_message="..."))
     exc.retry_after = 15  # type: ignore[attr-defined]
 

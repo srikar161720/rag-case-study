@@ -7,6 +7,7 @@ shape (GROUP BY / ORDER BY / LIMIT).
 
 import duckdb
 import pytest
+import structlog.testing
 from pydantic import ValidationError
 
 from customs_agent.tools._filters import EntryFilters
@@ -141,6 +142,29 @@ def test_invalid_order_by_column_rejected() -> None:
     with pytest.raises(ValidationError) as exc:
         QueryEntriesInput(order_by=[("rogue_col", "asc")])
     assert "Invalid order_by" in str(exc.value)
+
+
+@pytest.mark.unit
+def test_invalid_columns_emit_sql_safety_event() -> None:
+    """Each allowlist validator logs ``sql_safety.invalid_column_name`` with
+    the offending field + values before raising ``ValidationError`` (Fork 52)."""
+    cases = [
+        ({"group_by": ["entered_value"]}, "group_by", "entered_value"),
+        (
+            {"aggregations": ["sum(secret_password)"]},
+            "aggregations",
+            "sum(secret_password)",
+        ),
+        ({"order_by": [("rogue_col", "asc")]}, "order_by", "rogue_col"),
+    ]
+    for kwargs, field, bad_value in cases:
+        with structlog.testing.capture_logs() as logs:
+            with pytest.raises(ValidationError):
+                QueryEntriesInput(**kwargs)
+        events = [e for e in logs if e["event"] == "sql_safety.invalid_column_name"]
+        assert len(events) == 1, f"expected one event for field={field}"
+        assert events[0]["field"] == field
+        assert bad_value in events[0]["invalid_values"]
 
 
 @pytest.mark.unit

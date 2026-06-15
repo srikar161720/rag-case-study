@@ -28,6 +28,8 @@ from typing import Protocol
 
 import structlog
 
+from customs_agent.observability.events import Events
+
 log = structlog.get_logger()
 
 MARKER_RE = re.compile(r"\[(\d+)\]")
@@ -80,7 +82,7 @@ def validate_markers(
     if not invalid:
         return prose
     log.warning(
-        "agent.hallucinated_citation",
+        Events.AGENT_HALLUCINATED_CITATION,
         invalid_ids=sorted(invalid),
         valid_ids=sorted(valid),
     )

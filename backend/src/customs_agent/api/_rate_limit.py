@@ -21,12 +21,16 @@ plus the standard ``Retry-After`` header so polite clients back off
 automatically.
 """
 
+import structlog
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 
 from customs_agent.config import settings
+from customs_agent.observability.events import Events
+
+log = structlog.get_logger()
 
 
 def composite_key(request: Request) -> str:
@@ -67,6 +71,13 @@ async def custom_rate_limit_handler(
     automatically.
     """
     retry_after = int(getattr(exc, "retry_after", 60))
+    log.warning(
+        Events.RATELIMIT_HIT,
+        bucket=composite_key(request),
+        endpoint=request.url.path,
+        limit=str(getattr(exc, "limit", None)),
+        retry_after=retry_after,
+    )
     return JSONResponse(
         status_code=429,
         headers={"Retry-After": str(retry_after)},

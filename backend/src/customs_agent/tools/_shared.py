@@ -31,9 +31,13 @@ import time
 from typing import Any
 
 import duckdb
+import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
+from customs_agent.observability.events import Events
 from customs_agent.tools._filters import EntryFilters
+
+log = structlog.get_logger()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Result envelope (returned by every tool)
@@ -211,6 +215,11 @@ def safe_execute(
     stripped = sql.lstrip()
     first_word = stripped.split(None, 1)[0].upper() if stripped else ""
     if first_word not in _ALLOWED_LEADING_KEYWORDS:
+        log.warning(
+            Events.SQL_SAFETY_UNSAFE_SQL_BLOCKED,
+            sql_prefix=stripped[:80],
+            first_word=first_word,
+        )
         raise ValueError(
             f"safe_execute refuses non-read-only statement "
             f"(starts with {first_word!r}; allowed: SELECT, WITH)"
