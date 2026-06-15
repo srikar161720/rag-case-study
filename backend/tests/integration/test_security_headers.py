@@ -124,8 +124,8 @@ def test_main_app_user_middleware_outermost_is_security_headers() -> None:
     assert classes[0] == "SecurityHeadersMiddleware", (
         f"SEM must be outermost user middleware; got order: {classes}"
     )
-    assert classes[-1] == "RequestIdMiddleware", (
-        f"RequestId must be innermost user middleware; got order: {classes}"
+    assert classes[-1] == "RequestLoggingMiddleware", (
+        f"RequestLogging must be innermost user middleware; got order: {classes}"
     )
     assert "CORSMiddleware" in classes
     assert "SlowAPIMiddleware" in classes
